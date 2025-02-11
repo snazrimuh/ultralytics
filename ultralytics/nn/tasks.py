@@ -13,6 +13,9 @@ import torch
 from ultralytics.nn.modules import (
     LKStar,
     SimSPPF,
+    SPPCSPC, 
+    EMA, 
+    SPDConv,
     AIFI,
     C1,
     C2,
@@ -953,6 +956,9 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         {
             LKStar,
             SimSPPF,
+            SPPCSPC, 
+            EMA, 
+            SPDConv,
             Classify,
             Conv,
             ConvTranspose,

@@ -13,6 +13,9 @@ from .transformer import TransformerBlock
 __all__ = (
     "LKStar",
     "SimSPPF",
+    "SPPCSPC", 
+    "EMA", 
+    "SPDConv",
     "DFL",
     "HGBlock",
     "HGStem",
@@ -81,6 +84,49 @@ class SimSPPF(nn.Module):
     def forward(self, x):
         y1 = self.m(x)
         return self.cv1(self.act(torch.cat((x, y1), 1)))
+
+# 1. SPPCSPC (pengganti SPPF)
+class SPPCSPC(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1)
+        self.pool1 = nn.MaxPool2d(5, stride=1, padding=2)
+        self.pool2 = nn.MaxPool2d(9, stride=1, padding=4)
+        self.pool3 = nn.MaxPool2d(13, stride=1, padding=6)
+        self.conv2 = nn.Conv2d(out_channels * 2, out_channels, kernel_size=1)
+
+    def forward(self, x):
+        x1 = self.conv1(x)
+        x2 = self.pool1(x1)
+        x3 = self.pool2(x1)
+        x4 = self.pool3(x1)
+        out = torch.cat([x1, x2, x3, x4], dim=1)
+        return self.conv2(out)
+
+# 2. EMA Attention Module
+class EMA(nn.Module):
+    def __init__(self, in_channels):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, in_channels // 2, kernel_size=1)
+        self.conv2 = nn.Conv2d(in_channels // 2, in_channels, kernel_size=1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        attn = self.sigmoid(self.conv1(x))
+        return self.conv2(attn * x)
+
+# 3. SPD-Conv (pengganti Downsampling)
+class SPDConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.spatial_to_depth = nn.PixelUnshuffle(2)
+        self.conv = nn.Conv2d(in_channels * 4, out_channels, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        x = self.spatial_to_depth(x)
+        return self.conv(x)
+
+
 class DFL(nn.Module):
     """
     Integral module of Distribution Focal Loss (DFL).

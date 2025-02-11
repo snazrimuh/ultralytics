@@ -20,6 +20,9 @@ Example:
 from .block import (
     LKStar,
     SimSPPF,
+    SPPCSPC, 
+    EMA, 
+    SPDConv,
     C1,
     C2,
     C2PSA,
@@ -93,6 +96,9 @@ from .transformer import (
 __all__ = (
     "LKStar",
     "SimSPPF",
+    "SPPCSPC", 
+    "EMA", 
+    "SPDConv",
     "Conv",
     "Conv2",
     "LightConv",
