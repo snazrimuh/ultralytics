@@ -11,6 +11,8 @@ from .conv import Conv, DWConv, GhostConv, LightConv, RepConv, autopad
 from .transformer import TransformerBlock
 
 __all__ = (
+    "LKStar",
+    "SimSPPF",
     "DFL",
     "HGBlock",
     "HGStem",
@@ -52,7 +54,30 @@ __all__ = (
     "TorchVision",
 )
 
+class LKStar(nn.Module):
+    def __init__(self, c1, c2, kernel_size=13):
+        super().__init__()
+        self.split = c2 // 2
+        self.lkconv1 = nn.Conv2d(self.split, self.split, kernel_size, padding=kernel_size // 2, groups=self.split)
+        self.lkconv2 = nn.Conv2d(self.split, self.split, 3, padding=1, groups=self.split)
+        self.residual = nn.Conv2d(c1, c2, 1, 1)  # Residual connection
+        
+    def forward(self, x):
+        x1, x2 = x[:, :self.split, :, :], x[:, self.split:, :, :]
+        x1 = self.lkconv1(x1)
+        x2 = self.lkconv2(x2)
+        return self.residual(torch.cat((x1, x2), 1))
 
+class SimSPPF(nn.Module):
+    def __init__(self, c1, c2, k=5):
+        super().__init__()
+        self.cv1 = nn.Conv2d(c1, c2, 1, 1)
+        self.m = nn.MaxPool2d(k, stride=1, padding=k // 2)
+        self.act = nn.ReLU()  # Pakai ReLU bukan SiLU
+        
+    def forward(self, x):
+        y1 = self.m(x)
+        return self.cv1(self.act(torch.cat((x, y1), 1)))
 class DFL(nn.Module):
     """
     Integral module of Distribution Focal Loss (DFL).
