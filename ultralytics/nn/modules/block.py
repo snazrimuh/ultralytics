@@ -12,7 +12,6 @@ from .transformer import TransformerBlock
 
 __all__ = (
     "LKStar",
-    "LKConv",
     "SimSPPF",
     "SPPCSPC", 
     "EMA", 
@@ -58,21 +57,6 @@ __all__ = (
     "TorchVision",
 )
 
-
-class LKConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=13):
-        super(LKConv, self).__init__()
-        self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, stride=1, padding=kernel_size//2 - (kernel_size % 2 == 0), groups=in_channels, bias=False)
-        self.pwconv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.act = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        print(f"LKConv input shape: {x.shape}")
-        x = self.dwconv(x)
-        x = self.pwconv(x)
-        x = self.bn(x)
-        return self.act(x)
 
 class LKStar(nn.Module):
     """LKStar Module: Large-Kernel Convolution dengan Star-Structure."""
@@ -126,6 +110,10 @@ class LKStar(nn.Module):
         x = self.act1(self.bn1(self.split_conv(x)))  # Split fitur awal
         x_large = self.act2(self.bn2(self.large_kernel_conv(x)))  # Jalur 1 - Large Kernel
         x_small = self.act3(self.bn3(self.small_kernel_conv(x)))  # Jalur 2 - Small Kernel
+
+        # **FIX PADDING ERROR** → Pastikan ukuran sama sebelum elemen-wise multiplication
+        if x_large.shape != x_small.shape:
+            x_small = F.pad(x_small, (0, x_large.shape[-1] - x_small.shape[-1], 0, x_large.shape[-2] - x_small.shape[-2]))
 
         # Star Operation (Element-wise Multiplication)
         x_star = self.star_mult(x_large) * x_small  # Elemen-wise multiplication
