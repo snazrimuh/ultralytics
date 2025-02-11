@@ -75,34 +75,58 @@ class LKConv(nn.Module):
         return self.act(x)
 
 class LKStar(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=13, use_bn=True, activation=True, stride=1):
+    """LKStar Module: Menggunakan Large-Kernel Convolution dan Star-Structure untuk meningkatkan receptive field."""
+
+    def __init__(self, in_channels, out_channels, kernel_size=13):
+        """
+        Args:
+            in_channels: Jumlah channel input.
+            out_channels: Jumlah channel output.
+            kernel_size: Ukuran kernel depthwise convolution.
+        """
         super(LKStar, self).__init__()
-        self.branch1 = LKConv(in_channels, out_channels, kernel_size)
-        self.branch2 = LKConv(in_channels, out_channels, kernel_size)
-        self.fusion = nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=stride, padding=0)
-        self.use_bn = use_bn
-        self.activation = activation
-        if self.use_bn:
-            self.bn = nn.BatchNorm2d(out_channels)
-        if self.activation:
-            self.act = nn.ReLU(inplace=True)
-        
-        # Channel adjustment layer to ensure compatibility
-        self.channel_adjust = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
+
+        # Membagi fitur menjadi dua jalur (Split Operation)
+        self.split_conv = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels // 2)
+        self.act1 = nn.SiLU()
+
+        # Jalur pertama: Depthwise Convolution dengan Large Kernel
+        self.large_kernel_conv = nn.Conv2d(out_channels // 2, out_channels // 2, 
+                                           kernel_size=kernel_size, stride=1, 
+                                           padding=kernel_size // 2, groups=out_channels // 2, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels // 2)
+        self.act2 = nn.SiLU()
+
+        # Jalur kedua: Depthwise Convolution dengan Small Kernel (3x3)
+        self.small_kernel_conv = nn.Conv2d(out_channels // 2, out_channels // 2, 
+                                           kernel_size=3, stride=1, 
+                                           padding=1, groups=out_channels // 2, bias=False)
+        self.bn3 = nn.BatchNorm2d(out_channels // 2)
+        self.act3 = nn.SiLU()
+
+        # Elemen-wise Multiplication (Star Operation)
+        self.star_mult = nn.Conv2d(out_channels // 2, out_channels // 2, kernel_size=1, bias=False)
+
+        # Konvolusi Akhir untuk Menggabungkan Output
+        self.conv_final = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
+        self.bn_final = nn.BatchNorm2d(out_channels)
+        self.act_final = nn.SiLU()
 
     def forward(self, x):
-        print(f"LKStar input shape: {x.shape}")
-        out1 = self.branch1(x)
-        out2 = self.branch2(x)
-        fused = self.fusion(out1 * out2)  # Element-wise multiplication (Star Operation)
-        if self.use_bn:
-            fused = self.bn(fused)
-        if self.activation:
-            fused = self.act(fused)
+        """Forward pass dari LKStar module."""
+        x = self.act1(self.bn1(self.split_conv(x)))  # Split fitur awal
+        x_large = self.act2(self.bn2(self.large_kernel_conv(x)))  # Jalur 1 - Large Kernel
+        x_small = self.act3(self.bn3(self.small_kernel_conv(x)))  # Jalur 2 - Small Kernel
+
+        # Star Operation (Element-wise Multiplication)
+        x_star = self.star_mult(x_large) * x_small  # Elemen-wise multiplication
         
-        fused = self.channel_adjust(fused)
-        print(f"LKStar output shape: {fused.shape}")
-        return fused
+        # Menggabungkan fitur dan melakukan konvolusi akhir
+        out = torch.cat([x_large, x_star], dim=1)
+        out = self.act_final(self.bn_final(self.conv_final(out)))
+        return out
+    
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
