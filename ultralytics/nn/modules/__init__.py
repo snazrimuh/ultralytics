@@ -19,7 +19,6 @@ Example:
 
 from .block import (
     LKStar,
-    CBS,
     SimSPPF,
     SPPCSPC, 
     EMA, 
@@ -96,7 +95,6 @@ from .transformer import (
 
 __all__ = (
     "LKStar",
-    "CBS",
     "SimSPPF",
     "SPPCSPC", 
     "EMA", 

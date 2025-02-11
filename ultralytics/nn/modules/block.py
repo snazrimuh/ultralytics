@@ -12,7 +12,6 @@ from .transformer import TransformerBlock
 
 __all__ = (
     "LKStar",
-    "CBS",
     "SimSPPF",
     "SPPCSPC", 
     "EMA", 
@@ -59,61 +58,42 @@ __all__ = (
 )
 
 
-class CBS(nn.Module):
-    """Conv-BN-SiLU Block"""
-    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):
-        super().__init__()
-        self.conv = nn.Conv2d(c1, c2, k, stride=s, padding=p or k // 2, groups=g, bias=False)
-        self.bn = nn.BatchNorm2d(c2)
-        self.act = nn.SiLU() if act else nn.Identity()
-
-    def forward(self, x):
-        return self.act(self.bn(self.conv(x)))
-
+# Large-Kernel Star Module (LKStar)
 class LKStar(nn.Module):
-    """Large-Kernel Star Structure for YOLOv8"""
-    
-    def __init__(self, c1, c2, k=13):
-        super().__init__()
-        self.split = c2 // 2  # Split channels
-        self.conv1 = CBS(c1, c2, 1, 1)  # Initial 1x1 Conv
-        self.lkconv1 = CBS(self.split, self.split, k, 1, g=self.split)  # Large-Kernel DWConv
-        self.lkconv2 = CBS(self.split, self.split, k, 1, g=self.split)  # Second Large-Kernel DWConv
-        self.conv1x1 = CBS(self.split, self.split, 1)  # Pointwise Conv for fusion
-
+    def __init__(self, in_channels, out_channels, kernel_size=13, use_residual=True):
+        super(LKStar, self).__init__()
+        self.use_residual = use_residual
+        self.dwconv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=kernel_size//2, groups=in_channels, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.act = nn.ReLU(inplace=True)
+        self.conv1x1 = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
+        
     def forward(self, x):
-        x = self.conv1(x)
-        c_half = x.shape[1] // 2  # Ensure dynamic channel split
-        x1, x2 = x[:, :c_half, :, :], x[:, c_half:, :, :]  # Correct split method
-
-        out = self.lkconv1(x1) * self.lkconv2(x1)  # Star Multiplication
-
-        # Ensure matching channel sizes before concatenation
+        out = self.dwconv(x)
+        out = self.bn(out)
+        out = self.act(out)
         out = self.conv1x1(out)
-        if out.shape[1] != x2.shape[1]:  
-            diff = x2.shape[1] - out.shape[1]
-            pad = torch.zeros((x.shape[0], diff, x.shape[2], x.shape[3]), device=x.device)
-            out = torch.cat([out, pad], dim=1)  # Padding to match channel size
+        if self.use_residual:
+            out += x
+        return out
 
-        return torch.cat([out, x2], dim=1)  # Concatenate final output
-
-# Simplified Spatial Pyramid Pooling-Fast (SimSPPF) Module
+# Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
-    def __init__(self, c1, c2, k=5):
-        super().__init__()
-        self.conv1 = nn.Conv2d(c1, c2 // 2, 1, 1)
-        self.pool = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
-        self.conv2 = nn.Conv2d(c2 * 2, c2, 1, 1)
-        self.bn = nn.BatchNorm2d(c2)
-        self.act = nn.ReLU()
-    
+    def __init__(self, in_channels, out_channels, kernel_size=5):
+        super(SimSPPF, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.act1 = nn.ReLU(inplace=True)
+        self.pool = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size//2)
+        self.conv2 = nn.Conv2d(out_channels * 4, out_channels, kernel_size=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.act2 = nn.ReLU(inplace=True)
+        
     def forward(self, x):
-        x = self.conv1(x)
-        x_pool = self.pool(x)
-        x = torch.cat([x, x_pool], dim=1)
-        x = self.conv2(x)
-        x = self.bn(x)
-        return self.act(x)
+        x = self.act1(self.bn1(self.conv1(x)))
+        pooled = self.pool(x)
+        concat = torch.cat([x, pooled, self.pool(pooled), self.pool(self.pool(pooled))], dim=1)
+        return self.act2(self.bn2(self.conv2(concat)))
 
 
 # EMA Attention Module
