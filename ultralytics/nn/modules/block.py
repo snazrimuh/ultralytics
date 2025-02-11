@@ -125,17 +125,46 @@ class SimSPPF(nn.Module):
 
 # EMA Attention Module
 class EMA(nn.Module):
-    def __init__(self, c1, c2):
-        super().__init__()
-        self.attn = nn.Sequential(
-            nn.Conv2d(c1, c2, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(c2, c2, 1, 1),
-            nn.Sigmoid()
-        )
+    def __init__(self, in_channels, reduction=2):
+        super(EMA, self).__init__()
+        mid_channels = in_channels // reduction  # Mengurangi jumlah channel
+
+        # 1x1 Convolution untuk reduksi dimensi
+        self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(mid_channels)
+        self.act1 = nn.SiLU()
+
+        # Cabang pertama: Depthwise Separable Convolution 3x3
+        self.conv_branch1 = nn.Conv2d(mid_channels, mid_channels, kernel_size=3, stride=1, padding=1, groups=mid_channels, bias=False)
+        self.bn_branch1 = nn.BatchNorm2d(mid_channels)
+        self.act_branch1 = nn.SiLU()
+
+        # Cabang kedua: MaxPooling 3x3 + 1x1 Convolution
+        self.pool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+        self.conv_branch2 = nn.Conv2d(mid_channels, mid_channels, kernel_size=1, bias=False)
+        self.bn_branch2 = nn.BatchNorm2d(mid_channels)
+        self.act_branch2 = nn.SiLU()
+
+        # Konvolusi akhir untuk menggabungkan fitur
+        self.conv_final = nn.Conv2d(mid_channels * 2, in_channels, kernel_size=1, bias=False)
+        self.bn_final = nn.BatchNorm2d(in_channels)
+        self.act_final = nn.SiLU()
 
     def forward(self, x):
-        return x * self.attn(x)
+        x1 = self.act1(self.bn1(self.conv1(x)))  # Reduksi channel awal
+
+        # Cabang 1: Depthwise Separable Convolution
+        branch1 = self.act_branch1(self.bn_branch1(self.conv_branch1(x1)))
+
+        # Cabang 2: MaxPooling + 1x1 Convolution
+        branch2 = self.act_branch2(self.bn_branch2(self.conv_branch2(self.pool(x1))))
+
+        # Menggabungkan dua cabang
+        merged = torch.cat([branch1, branch2], dim=1)
+
+        # Konvolusi akhir
+        out = self.act_final(self.bn_final(self.conv_final(merged)))
+        return out
 
 class SPPCSPC(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_sizes=[5, 9, 13]):
