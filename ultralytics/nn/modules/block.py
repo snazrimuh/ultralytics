@@ -12,6 +12,7 @@ from .transformer import TransformerBlock
 
 __all__ = (
     "LKStar",
+    "CBS",
     "SimSPPF",
     "SPPCSPC", 
     "EMA", 
@@ -57,23 +58,33 @@ __all__ = (
     "TorchVision",
 )
 
-# Large-Kernel Star Structure (LKStar) Module
+class CBS(nn.Module):
+    """Conv-BN-SiLU Block"""
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):
+        super().__init__()
+        self.conv = nn.Conv2d(c1, c2, k, stride=s, padding=p or k // 2, groups=g, bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU() if act else nn.Identity()
+
+    def forward(self, x):
+        return self.act(self.bn(self.conv(x)))
+    
 class LKStar(nn.Module):
+    """Large-Kernel Star Structure for YOLOv8"""
+    
     def __init__(self, c1, c2, k=13):
         super().__init__()
-        self.dwconv1 = nn.Conv2d(c1, c2 // 2, k, padding=k // 2, groups=c1)
-        self.dwconv2 = nn.Conv2d(c1, c2 // 2, k, padding=k // 2, groups=c1)
-        self.conv1x1 = nn.Conv2d(c2, c2, 1)
-        self.bn = nn.BatchNorm2d(c2)
-        self.act = nn.ReLU()
-    
+        self.split = c2 // 2  # Split channels
+        self.conv1 = CBS(c1, c2, 1, 1)  # Initial pointwise Conv
+        self.lkconv1 = CBS(self.split, self.split, k, 1, g=self.split)  # Large-Kernel DWConv
+        self.lkconv2 = CBS(self.split, self.split, k, 1, g=self.split)  # Second Large-Kernel DWConv
+        self.conv1x1 = CBS(self.split, self.split, 1)  # Pointwise Conv for fusion
+
     def forward(self, x):
-        x1 = self.dwconv1(x)
-        x2 = self.dwconv2(x)
-        out = x1 * x2  # Star operation (element-wise multiplication)
-        out = self.conv1x1(out)
-        out = self.bn(out)
-        return self.act(out)
+        x = self.conv1(x)
+        x1, x2 = x.split(self.split, 1)  # Channel Split
+        out = self.lkconv1(x1) * self.lkconv2(x2)  # Star Multiplication
+        return torch.cat([self.conv1x1(out), x2], dim=1)  # Concatenation
 
 # Simplified Spatial Pyramid Pooling-Fast (SimSPPF) Module
 class SimSPPF(nn.Module):
