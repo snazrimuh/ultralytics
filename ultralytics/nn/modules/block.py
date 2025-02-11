@@ -62,12 +62,13 @@ __all__ = (
 class LKConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13):
         super(LKConv, self).__init__()
-        self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, stride=1, padding=kernel_size//2, groups=in_channels, bias=False)
+        self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, stride=1, padding=kernel_size//2 - (kernel_size % 2 == 0), groups=in_channels, bias=False)
         self.pwconv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
         self.act = nn.ReLU(inplace=True)
 
     def forward(self, x):
+        print(f"LKConv input shape: {x.shape}")
         x = self.dwconv(x)
         x = self.pwconv(x)
         x = self.bn(x)
@@ -78,7 +79,7 @@ class LKStar(nn.Module):
         super(LKStar, self).__init__()
         self.branch1 = LKConv(in_channels, out_channels, kernel_size)
         self.branch2 = LKConv(in_channels, out_channels, kernel_size)
-        self.fusion = nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=stride)
+        self.fusion = nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=stride, padding=0)
         self.use_bn = use_bn
         self.activation = activation
         if self.use_bn:
