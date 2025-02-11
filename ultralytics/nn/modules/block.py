@@ -199,24 +199,29 @@ class SPPCSPC(nn.Module):
         out = self.act3(self.bn3(self.conv3(x3)))  # Konvolusi akhir
         return out
 
-# Contoh penggunaan
-if __name__ == "__main__":
-    model = SPPCSPC(in_channels=512, out_channels=512)
-    dummy_input = torch.randn(1, 512, 32, 32)  # Contoh input dengan ukuran 32x32
-    output = model(dummy_input)
-    print(output.shape)  # Harusnya tetap (1, 512, 32, 32)
-
-
 # SPD-Conv Module (Pengganti Downsampling)
-class SPDConv(nn.Module):
-    def __init__(self, c1, c2):
-        super().__init__()
-        self.spatial_to_depth = nn.PixelUnshuffle(2)  
-        self.conv = nn.Conv2d(c1 * 4, c2, kernel_size=3, stride=1, padding=1)
+class SPD_Conv(nn.Module):
+    """Spatial-to-Depth Convolution (SPD-Conv) module to replace strided convolution for better feature retention."""
+
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=2, padding=1):
+        """
+        Initializes SPD-Conv:
+        - Uses a spatial-to-depth transformation instead of strided convolution.
+        - Preserves small object details while performing downsampling.
+        """
+        super(SPD_Conv, self).__init__()
+        self.s2d = nn.PixelUnshuffle(stride)  # Spatial-to-Depth transformation
+        self.conv = nn.Conv2d(in_channels * (stride ** 2), out_channels, kernel_size, stride=1, padding=padding, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.act = nn.SiLU()  # Activation function
 
     def forward(self, x):
-        x = self.spatial_to_depth(x)
-        return self.conv(x)
+        """Forward pass through SPD-Conv module."""
+        x = self.s2d(x)  # Spatial-to-Depth conversion (reduces spatial size, increases channels)
+        x = self.conv(x)  # Standard convolution
+        x = self.bn(x)  # Batch normalization
+        x = self.act(x)  # Activation function
+        return x
 
 
 
