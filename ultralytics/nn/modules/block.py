@@ -140,11 +140,11 @@ class EMA(nn.Module):
 
 # SPPCSPC Module (Pengganti SPPF)
 class SPPCSPC(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, kernel_size=5):
         super(SPPCSPC, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1)
         self.conv2 = nn.Conv2d(out_channels // 2, out_channels // 2, kernel_size=3, padding=1)
-        self.pool1 = nn.MaxPool2d(kernel_size=5, stride=1, padding=2)
+        self.pool1 = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=2)
         self.pool2 = nn.MaxPool2d(kernel_size=9, stride=1, padding=4)
         self.pool3 = nn.MaxPool2d(kernel_size=13, stride=1, padding=6)
         self.conv3 = nn.Conv2d(out_channels, out_channels, kernel_size=1)
