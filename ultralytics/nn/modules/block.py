@@ -12,6 +12,7 @@ from .transformer import TransformerBlock
 
 __all__ = (
     "LKStar",
+    "LKConv",
     "SimSPPF",
     "SPPCSPC", 
     "EMA", 
@@ -58,24 +59,34 @@ __all__ = (
 )
 
 
-# Large-Kernel Star Module (LKStar)
-class LKStar(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=13, use_residual=True):
-        super(LKStar, self).__init__()
-        self.use_residual = use_residual
-        self.dwconv = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=kernel_size//2, groups=out_channels, bias=False)
+class LKConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=13):
+        super(LKConv, self).__init__()
+        self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, stride=1, padding=kernel_size//2, groups=in_channels, bias=False)
+        self.pwconv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
         self.act = nn.ReLU(inplace=True)
-        self.conv1x1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)  # Mengubah jumlah channel
-        
+
     def forward(self, x):
-        out = self.conv1x1(x)  # Konversi channel sebelum depthwise convolution
-        out = self.dwconv(out)
-        out = self.bn(out)
-        out = self.act(out)
-        if self.use_residual:
-            out += out  # Menyesuaikan dengan jumlah channel yang sama
-        return out
+        x = self.dwconv(x)
+        x = self.pwconv(x)
+        x = self.bn(x)
+        return self.act(x)
+
+class LKStar(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=13):
+        super(LKStar, self).__init__()
+        self.branch1 = LKConv(in_channels, out_channels, kernel_size)
+        self.branch2 = LKConv(in_channels, out_channels, kernel_size)
+        self.fusion = nn.Conv2d(out_channels, out_channels, kernel_size=1)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.act = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        out1 = self.branch1(x)
+        out2 = self.branch2(x)
+        fused = self.fusion(out1 * out2)  # Element-wise multiplication (Star Operation)
+        return self.act(self.bn(fused))
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
