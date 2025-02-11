@@ -200,7 +200,7 @@ class SPPCSPC(nn.Module):
         return out
 
 # SPD-Conv Module (Pengganti Downsampling)
-class SPD_Conv(nn.Module):
+class SPDConv(nn.Module):
     """Spatial-to-Depth Convolution (SPD-Conv) module to replace strided convolution for better feature retention."""
 
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=2, padding=1):
@@ -209,7 +209,7 @@ class SPD_Conv(nn.Module):
         - Uses a spatial-to-depth transformation instead of strided convolution.
         - Preserves small object details while performing downsampling.
         """
-        super(SPD_Conv, self).__init__()
+        super(SPDConv, self).__init__()
         self.s2d = nn.PixelUnshuffle(stride)  # Spatial-to-Depth transformation
         self.conv = nn.Conv2d(in_channels * (stride ** 2), out_channels, kernel_size, stride=1, padding=padding, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
