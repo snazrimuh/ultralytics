@@ -63,18 +63,18 @@ class LKStar(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13, use_residual=True):
         super(LKStar, self).__init__()
         self.use_residual = use_residual
-        self.dwconv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=kernel_size//2, groups=in_channels, bias=False)
+        self.dwconv = nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=kernel_size//2, groups=out_channels, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
         self.act = nn.ReLU(inplace=True)
-        self.conv1x1 = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
+        self.conv1x1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)  # Mengubah jumlah channel
         
     def forward(self, x):
-        out = self.dwconv(x)
+        out = self.conv1x1(x)  # Konversi channel sebelum depthwise convolution
+        out = self.dwconv(out)
         out = self.bn(out)
         out = self.act(out)
-        out = self.conv1x1(out)
         if self.use_residual:
-            out += x
+            out += out  # Menyesuaikan dengan jumlah channel yang sama
         return out
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
