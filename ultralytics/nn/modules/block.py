@@ -138,21 +138,45 @@ class EMA(nn.Module):
         return x * self.attn(x)
 
 class SPPCSPC(nn.Module):
-    def __init__(self, c1, c2):  
-        super().__init__()
-        c_ = c2 // 2
-        self.cv1 = nn.Conv2d(c1, c_, 1, 1)
-        self.maxpool1 = nn.MaxPool2d(kernel_size=5, stride=1, padding=5 // 2)
-        self.maxpool2 = nn.MaxPool2d(kernel_size=9, stride=1, padding=9 // 2)
-        self.maxpool3 = nn.MaxPool2d(kernel_size=13, stride=1, padding=13 // 2)
-        self.cv2 = nn.Conv2d(c_ * 4, c2, 1, 1)  # 4 karena ada 3 MaxPool + 1 input awal
+    def __init__(self, in_channels, out_channels, kernel_sizes=[5, 9, 13]):
+        super(SPPCSPC, self).__init__()
+        hidden_channels = in_channels // 2  # Mengurangi jumlah channel untuk efisiensi
+
+        # Convolution pertama untuk mengurangi dimensi
+        self.conv1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn1 = nn.BatchNorm2d(hidden_channels)
+        self.act1 = nn.SiLU()
+
+        # Multiple max pooling dengan kernel berbeda
+        self.pooling_layers = nn.ModuleList([
+            nn.MaxPool2d(kernel_size=k, stride=1, padding=k//2) for k in kernel_sizes
+        ])
+
+        # Convolution untuk memproses hasil pooling
+        self.conv2 = nn.Conv2d(hidden_channels * (len(kernel_sizes) + 1), hidden_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn2 = nn.BatchNorm2d(hidden_channels)
+        self.act2 = nn.SiLU()
+
+        # Convolution terakhir untuk mengembalikan ke jumlah channel yang diinginkan
+        self.conv3 = nn.Conv2d(hidden_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(out_channels)
+        self.act3 = nn.SiLU()
 
     def forward(self, x):
-        x = self.cv1(x)
-        p1 = self.maxpool1(x)
-        p2 = self.maxpool2(x)
-        p3 = self.maxpool3(x)
-        return self.cv2(torch.cat([x, p1, p2, p3], 1))
+        x1 = self.act1(self.bn1(self.conv1(x)))  # Reduksi channel awal
+        pooled_features = [x1] + [pool(x1) for pool in self.pooling_layers]  # Pooling multi-skala
+        x2 = torch.cat(pooled_features, dim=1)  # Menggabungkan hasil pooling
+        x3 = self.act2(self.bn2(self.conv2(x2)))  # Konvolusi untuk fusi fitur
+        out = self.act3(self.bn3(self.conv3(x3)))  # Konvolusi akhir
+        return out
+
+# Contoh penggunaan
+if __name__ == "__main__":
+    model = SPPCSPC(in_channels=512, out_channels=512)
+    dummy_input = torch.randn(1, 512, 32, 32)  # Contoh input dengan ukuran 32x32
+    output = model(dummy_input)
+    print(output.shape)  # Harusnya tetap (1, 512, 32, 32)
+
 
 # SPD-Conv Module (Pengganti Downsampling)
 class SPDConv(nn.Module):
