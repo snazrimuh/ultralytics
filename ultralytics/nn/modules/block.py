@@ -57,35 +57,42 @@ __all__ = (
     "TorchVision",
 )
 
+# Large-Kernel Star Structure (LKStar) Module
 class LKStar(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=13):
-        super(LKStar, self).__init__()
-        self.dwconv_large = nn.Conv2d(in_channels, in_channels, kernel_size, padding=kernel_size//2, groups=in_channels, bias=False)
-        self.dwconv_small = nn.Conv2d(in_channels, in_channels, 3, padding=1, groups=in_channels, bias=False)
-        self.norm = nn.GroupNorm(32, in_channels)  # Ganti BatchNorm2d dengan GroupNorm
-        self.act = nn.ReLU(inplace=True)
-        self.conv1x1 = nn.Conv2d(in_channels, out_channels, 1, bias=False)
+    def __init__(self, c1, c2, k=13):
+        super().__init__()
+        self.dwconv1 = nn.Conv2d(c1, c2 // 2, k, padding=k // 2, groups=c1)
+        self.dwconv2 = nn.Conv2d(c1, c2 // 2, k, padding=k // 2, groups=c1)
+        self.conv1x1 = nn.Conv2d(c2, c2, 1)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.ReLU()
     
     def forward(self, x):
-        x1 = self.dwconv_large(x)
-        x2 = self.dwconv_small(x)
-        x = x1 * x2  # Star Operation (element-wise multiplication)
-        x = self.norm(x)  # Menghindari error saat batch kecil
-        x = self.act(x)
-        x = self.conv1x1(x)
-        return x
+        x1 = self.dwconv1(x)
+        x2 = self.dwconv2(x)
+        out = x1 * x2  # Star operation (element-wise multiplication)
+        out = self.conv1x1(out)
+        out = self.bn(out)
+        return self.act(out)
 
-
+# Simplified Spatial Pyramid Pooling-Fast (SimSPPF) Module
 class SimSPPF(nn.Module):
     def __init__(self, c1, c2, k=5):
         super().__init__()
-        self.cv1 = nn.Conv2d(c1, c2, 1, 1)
-        self.m = nn.MaxPool2d(k, stride=1, padding=k // 2)
-        self.act = nn.ReLU()  # Pakai ReLU bukan SiLU
-        
+        self.conv1 = nn.Conv2d(c1, c2 // 2, 1, 1)
+        self.pool = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
+        self.conv2 = nn.Conv2d(c2 * 2, c2, 1, 1)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.ReLU()
+    
     def forward(self, x):
-        y1 = self.m(x)
-        return self.cv1(self.act(torch.cat((x, y1), 1)))
+        x = self.conv1(x)
+        x_pool = self.pool(x)
+        x = torch.cat([x, x_pool], dim=1)
+        x = self.conv2(x)
+        x = self.bn(x)
+        return self.act(x)
+
 
 # 1. SPPCSPC (pengganti SPPF)
 class SPPCSPC(nn.Module):
