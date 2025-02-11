@@ -125,45 +125,36 @@ class SimSPPF(nn.Module):
 
 # EMA Attention Module
 class EMA(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(EMA, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=1)
-        self.conv2 = nn.Conv2d(out_channels // 2, out_channels, kernel_size=1, stride=1)
-        self.sigmoid = nn.Sigmoid()
-    
-    def forward(self, x):
-        avg_out = torch.mean(x, dim=(2, 3), keepdim=True)
-        max_out, _ = torch.max(x, dim=(2, 3), keepdim=True)
-        out = self.conv1(avg_out + max_out)
-        out = self.conv2(out)
-        return x * self.sigmoid(out)
+    def __init__(self, c1, c2):
+        super().__init__()
+        self.attn = nn.Sequential(
+            nn.Conv2d(c1, c2, 1, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c2, c2, 1, 1),
+            nn.Sigmoid()
+        )
 
-# SPPCSPC Module (Pengganti SPPF)
+    def forward(self, x):
+        return x * self.attn(x)
+
 class SPPCSPC(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=5):
-        super(SPPCSPC, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1)
-        self.conv2 = nn.Conv2d(out_channels // 2, out_channels // 2, kernel_size=3, padding=1)
-        self.pool1 = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=2)
-        self.pool2 = nn.MaxPool2d(kernel_size=9, stride=1, padding=4)
-        self.pool3 = nn.MaxPool2d(kernel_size=13, stride=1, padding=6)
-        self.conv3 = nn.Conv2d(out_channels, out_channels, kernel_size=1)
+    def __init__(self, c1, c2, k=(5, 9, 13)):  
+        super().__init__()
+        c_ = c2 // 2
+        self.cv1 = nn.Conv2d(c1, c_, 1, 1)
+        self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
+        self.cv2 = nn.Conv2d(c_ * (len(k) + 1), c2, 1, 1)
 
     def forward(self, x):
-        x = self.conv1(x)
-        p1 = self.pool1(x)
-        p2 = self.pool2(x)
-        p3 = self.pool3(x)
-        x = torch.cat([x, p1, p2, p3], dim=1)
-        x = self.conv2(x)
-        return self.conv3(x)
+        x = self.cv1(x)
+        return self.cv2(torch.cat([x] + [m(x) for m in self.m], 1))
 
 # SPD-Conv Module (Pengganti Downsampling)
 class SPDConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(SPDConv, self).__init__()
-        self.spatial_to_depth = nn.PixelUnshuffle(2)
-        self.conv = nn.Conv2d(in_channels * 4, out_channels, kernel_size=3, padding=1)
+    def __init__(self, c1, c2):
+        super().__init__()
+        self.spatial_to_depth = nn.PixelUnshuffle(2)  
+        self.conv = nn.Conv2d(c1 * 4, c2, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
         x = self.spatial_to_depth(x)
