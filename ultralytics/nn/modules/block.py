@@ -111,35 +111,36 @@ class EMA(nn.Module):
         out = self.conv2(out)
         return x * self.sigmoid(out)
 
+# SPPCSPC Module (Pengganti SPPF)
 class SPPCSPC(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(SPPCSPC, self).__init__()
-        mid_channels = out_channels // 2  # Sesuai dengan struktur YOLO
-        self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=1, stride=1)
+        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1)
+        self.conv2 = nn.Conv2d(out_channels // 2, out_channels // 2, kernel_size=3, padding=1)
         self.pool1 = nn.MaxPool2d(kernel_size=5, stride=1, padding=2)
         self.pool2 = nn.MaxPool2d(kernel_size=9, stride=1, padding=4)
         self.pool3 = nn.MaxPool2d(kernel_size=13, stride=1, padding=6)
-        self.conv2 = nn.Conv2d(mid_channels * 4, out_channels, kernel_size=1, stride=1)
+        self.conv3 = nn.Conv2d(out_channels, out_channels, kernel_size=1)
 
     def forward(self, x):
-        x1 = self.conv1(x)
-        p1 = self.pool1(x1)
-        p2 = self.pool2(x1)
-        p3 = self.pool3(x1)
-        out = torch.cat([x1, p1, p2, p3], dim=1)
-        out = self.conv2(out)
-        return out
+        x = self.conv1(x)
+        p1 = self.pool1(x)
+        p2 = self.pool2(x)
+        p3 = self.pool3(x)
+        x = torch.cat([x, p1, p2, p3], dim=1)
+        x = self.conv2(x)
+        return self.conv3(x)
 
+# SPD-Conv Module (Pengganti Downsampling)
 class SPDConv(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=2):
+    def __init__(self, in_channels, out_channels):
         super(SPDConv, self).__init__()
-        self.spatial_to_depth = nn.PixelUnshuffle(stride)
-        self.conv = nn.Conv2d(in_channels * (stride ** 2), out_channels, kernel_size=3, padding=1)
+        self.spatial_to_depth = nn.PixelUnshuffle(2)
+        self.conv = nn.Conv2d(in_channels * 4, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x):
         x = self.spatial_to_depth(x)
-        x = self.conv(x)
-        return x
+        return self.conv(x)
 
 
 
