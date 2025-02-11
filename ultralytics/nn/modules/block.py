@@ -150,17 +150,17 @@ class SPPCSPC(nn.Module):
         out = self.conv2(out)
         return out
 
-# SPD-Conv (pengganti downsampling stride conv)
 class SPDConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, stride=2):
         super(SPDConv, self).__init__()
-        self.spatial_to_depth = nn.PixelUnshuffle(2)
-        self.conv = nn.Conv2d(in_channels * 4, out_channels, kernel_size=3, padding=1)
-    
+        self.spatial_to_depth = nn.PixelUnshuffle(stride)
+        self.conv = nn.Conv2d(in_channels * (stride ** 2), out_channels, kernel_size=3, padding=1)
+
     def forward(self, x):
         x = self.spatial_to_depth(x)
         x = self.conv(x)
         return x
+
 
 
 class DFL(nn.Module):
