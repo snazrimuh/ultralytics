@@ -55,11 +55,13 @@ __all__ = (
 )
 
 class LKStar(nn.Module):
-    def __init__(self, c1, c2, kernel_size=13):
+    def __init__(self, c1, c2, kernel_size=13, stride=1, padding=None):
         super().__init__()
         self.split = c2 // 2
-        self.lkconv1 = nn.Conv2d(self.split, self.split, kernel_size, padding=kernel_size // 2, groups=self.split)
-        self.lkconv2 = nn.Conv2d(self.split, self.split, 3, padding=1, groups=self.split)
+        self.padding = padding if padding is not None else kernel_size // 2  # Hitung padding otomatis jika None
+        
+        self.lkconv1 = nn.Conv2d(self.split, self.split, kernel_size, stride=stride, padding=self.padding, groups=self.split)
+        self.lkconv2 = nn.Conv2d(self.split, self.split, 3, stride=stride, padding=1, groups=self.split)
         self.residual = nn.Conv2d(c1, c2, 1, 1)  # Residual connection
         
     def forward(self, x):
@@ -67,6 +69,7 @@ class LKStar(nn.Module):
         x1 = self.lkconv1(x1)
         x2 = self.lkconv2(x2)
         return self.residual(torch.cat((x1, x2), 1))
+
 
 class SimSPPF(nn.Module):
     def __init__(self, c1, c2, k=5):
