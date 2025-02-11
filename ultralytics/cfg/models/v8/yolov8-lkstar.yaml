@@ -30,18 +30,17 @@ backbone : [
 ]
 
 # YOLOv8.0n head with minor adjustments
-head : [
-  [-1, 1, nn.Upsample, [None, 2, "nearest"]],
-  [[-1, 6], 1, torch.cat, [1]], # cat backbone P4
-  [-1, 3, LKStar, [512]], # Replacing C2f with LKStar
-  [-1, 1, nn.Upsample, [None, 2, "nearest"]],
-  [[-1, 4], 1, torch.cat, [1]], # cat backbone P3
-  [-1, 3, LKStar, [256]], # Replacing C2f with LKStar
-  [-1, 1, nn.Conv2d, [256, 3, 2]],
-  [[-1, 12], 1, torch.cat, [1]], # cat head P4
-  [-1, 3, LKStar, [512]], # Replacing C2f with LKStar
-  [-1, 1, nn.Conv2d, [512, 3, 2]],
-  [[-1, 9], 1, torch.cat, [1]], # cat head P5
-  [-1, 3, LKStar, [1024]], # Replacing C2f with LKStar
-  [[15, 18, 21], 1, Detect, [nc]] # Detect(P3, P4, P5)
-]
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 6], 1, Concat, [1]] # cat backbone P4
+  - [-1, 3, LKStar, [512]] # Replacing C2f with LKStar
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 4], 1, Concat, [1]] # cat backbone P3
+  - [-1, 3, LKStar, [256]] # Replacing C2f with LKStar
+  - [-1, 1, nn.Conv2d, [256, 3, 2]]
+  - [[-1, 12], 1, Concat, [1]] # cat head P4
+  - [-1, 3, LKStar, [512]] # Replacing C2f with LKStar
+  - [-1, 1, nn.Conv2d, [512, 3, 2]]
+  - [[-1, 9], 1, Concat, [1]] # cat head P5
+  - [-1, 3, LKStar, [1024]] # Replacing C2f with LKStar
+  - [[15, 18, 21], 1, Detect, [nc]] # Detect(P3, P4, P5)
