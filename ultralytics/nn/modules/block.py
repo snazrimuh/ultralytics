@@ -58,20 +58,22 @@ __all__ = (
 )
 
 class LKStar(nn.Module):
-    def __init__(self, c1, c2, kernel_size=13, stride=1, padding=None):
-        super().__init__()
-        self.split = c2 // 2
-        self.padding = padding if padding is not None else kernel_size // 2  # Hitung padding otomatis jika None
-        
-        self.lkconv1 = nn.Conv2d(self.split, self.split, kernel_size, stride=stride, padding=self.padding, groups=self.split)
-        self.lkconv2 = nn.Conv2d(self.split, self.split, 3, stride=stride, padding=1, groups=self.split)
-        self.residual = nn.Conv2d(c1, c2, 1, 1)  # Residual connection
-        
+    def __init__(self, in_channels, out_channels, kernel_size=13):
+        super(LKStar, self).__init__()
+        self.dwconv_large = nn.Conv2d(in_channels, in_channels, kernel_size, padding=kernel_size//2, groups=in_channels, bias=False)
+        self.dwconv_small = nn.Conv2d(in_channels, in_channels, 3, padding=1, groups=in_channels, bias=False)
+        self.norm = nn.GroupNorm(32, in_channels)  # Ganti BatchNorm2d dengan GroupNorm
+        self.act = nn.ReLU(inplace=True)
+        self.conv1x1 = nn.Conv2d(in_channels, out_channels, 1, bias=False)
+    
     def forward(self, x):
-        x1, x2 = x[:, :self.split, :, :], x[:, self.split:, :, :]
-        x1 = self.lkconv1(x1)
-        x2 = self.lkconv2(x2)
-        return self.residual(torch.cat((x1, x2), 1))
+        x1 = self.dwconv_large(x)
+        x2 = self.dwconv_small(x)
+        x = x1 * x2  # Star Operation (element-wise multiplication)
+        x = self.norm(x)  # Menghindari error saat batch kecil
+        x = self.act(x)
+        x = self.conv1x1(x)
+        return x
 
 
 class SimSPPF(nn.Module):
@@ -87,10 +89,10 @@ class SimSPPF(nn.Module):
 
 # 1. SPPCSPC (pengganti SPPF)
 class SPPCSPC(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, kernel_size=5):  # Tambahkan kernel_size
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1)
-        self.pool1 = nn.MaxPool2d(5, stride=1, padding=2)
+        self.pool1 = nn.MaxPool2d(kernel_size, stride=1, padding=kernel_size // 2)
         self.pool2 = nn.MaxPool2d(9, stride=1, padding=4)
         self.pool3 = nn.MaxPool2d(13, stride=1, padding=6)
         self.conv2 = nn.Conv2d(out_channels * 2, out_channels, kernel_size=1)
