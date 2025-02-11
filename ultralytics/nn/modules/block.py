@@ -85,6 +85,9 @@ class LKStar(nn.Module):
             self.bn = nn.BatchNorm2d(out_channels)
         if self.activation:
             self.act = nn.ReLU(inplace=True)
+        
+        # Channel adjustment layer to ensure compatibility
+        self.channel_adjust = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
 
     def forward(self, x):
         out1 = self.branch1(x)
@@ -94,7 +97,9 @@ class LKStar(nn.Module):
             fused = self.bn(fused)
         if self.activation:
             fused = self.act(fused)
-        return fused
+        
+        # Ensure the output has the correct channel size
+        return self.channel_adjust(fused)
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
