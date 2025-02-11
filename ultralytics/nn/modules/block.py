@@ -60,7 +60,7 @@ __all__ = (
 
 
 class CBS(nn.Module):
-    """Conv-BN-SiLU Block"""
+    """Conv-BN-SiLU Block (mirip CBS dari YOLOv8)"""
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):
         super().__init__()
         self.conv = nn.Conv2d(c1, c2, k, stride=s, padding=p or k // 2, groups=g, bias=False)
@@ -71,21 +71,21 @@ class CBS(nn.Module):
         return self.act(self.bn(self.conv(x)))
 
 class LKStar(nn.Module):
-    """Large-Kernel Star Structure for YOLOv8"""
+    """Large-Kernel Star Structure (LKStar) for YOLOv8"""
     
-    def __init__(self, c1, c2, k=13):  # Menambahkan nilai default untuk k
+    def __init__(self, c1, c2, k=13):
         super().__init__()
-        self.split = c2 // 2  # Split channels
+        self.split = c2 // 2  # Jumlah channel yang dibagi
         self.conv1 = CBS(c1, c2, 1, 1)  # Initial pointwise Conv
         self.lkconv1 = CBS(self.split, self.split, k, 1, g=self.split)  # Large-Kernel DWConv
         self.lkconv2 = CBS(self.split, self.split, k, 1, g=self.split)  # Second Large-Kernel DWConv
-        self.conv1x1 = CBS(self.split, self.split, 1)  # Pointwise Conv for fusion
+        self.conv1x1 = CBS(self.split, c2 - self.split, 1)  # Pointwise Conv untuk mengatur ukuran
 
     def forward(self, x):
         x = self.conv1(x)
-        x1, x2 = x.split(self.split, 1)  # Channel Split
-        out = self.lkconv1(x1) * self.lkconv2(x2)  # Star Multiplication
-        return torch.cat([self.conv1x1(out), x2], dim=1)  # Concatenation
+        x1, x2 = x.split([self.split, x.shape[1] - self.split], dim=1)  # Dynamic split
+        out = self.lkconv1(x1) * self.lkconv2(x1)  # Star Multiplication
+        return torch.cat([self.conv1x1(out), x2], dim=1)  # Concatenate hasil
 
 # Simplified Spatial Pyramid Pooling-Fast (SimSPPF) Module
 class SimSPPF(nn.Module):
@@ -121,16 +121,16 @@ class EMA(nn.Module):
         out = self.conv2(out)
         return x * self.sigmoid(out)
 
-# SPPCSPC Module (pengganti SPPF)
 class SPPCSPC(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels):
         super(SPPCSPC, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=1)
+        mid_channels = in_channels // 2  # Sesuai dengan paper
+        self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=1, stride=1)
         self.pool1 = nn.MaxPool2d(kernel_size=5, stride=1, padding=2)
         self.pool2 = nn.MaxPool2d(kernel_size=9, stride=1, padding=4)
         self.pool3 = nn.MaxPool2d(kernel_size=13, stride=1, padding=6)
-        self.conv2 = nn.Conv2d(out_channels * 2, out_channels, kernel_size=1, stride=1)
-    
+        self.conv2 = nn.Conv2d(mid_channels * 4, in_channels, kernel_size=1, stride=1)
+
     def forward(self, x):
         x1 = self.conv1(x)
         p1 = self.pool1(x1)
