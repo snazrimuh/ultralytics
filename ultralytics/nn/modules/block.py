@@ -138,16 +138,21 @@ class EMA(nn.Module):
         return x * self.attn(x)
 
 class SPPCSPC(nn.Module):
-    def __init__(self, c1, c2, k=(5, 9, 13)):  
+    def __init__(self, c1, c2):  
         super().__init__()
         c_ = c2 // 2
         self.cv1 = nn.Conv2d(c1, c_, 1, 1)
-        self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
-        self.cv2 = nn.Conv2d(c_ * (len(k) + 1), c2, 1, 1)
+        self.maxpool1 = nn.MaxPool2d(kernel_size=5, stride=1, padding=5 // 2)
+        self.maxpool2 = nn.MaxPool2d(kernel_size=9, stride=1, padding=9 // 2)
+        self.maxpool3 = nn.MaxPool2d(kernel_size=13, stride=1, padding=13 // 2)
+        self.cv2 = nn.Conv2d(c_ * 4, c2, 1, 1)  # 4 karena ada 3 MaxPool + 1 input awal
 
     def forward(self, x):
         x = self.cv1(x)
-        return self.cv2(torch.cat([x] + [m(x) for m in self.m], 1))
+        p1 = self.maxpool1(x)
+        p2 = self.maxpool2(x)
+        p3 = self.maxpool3(x)
+        return self.cv2(torch.cat([x, p1, p2, p3], 1))
 
 # SPD-Conv Module (Pengganti Downsampling)
 class SPDConv(nn.Module):
