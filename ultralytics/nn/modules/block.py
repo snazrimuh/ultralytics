@@ -58,6 +58,7 @@ __all__ = (
     "TorchVision",
 )
 
+
 class CBS(nn.Module):
     """Conv-BN-SiLU Block"""
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):
@@ -68,11 +69,11 @@ class CBS(nn.Module):
 
     def forward(self, x):
         return self.act(self.bn(self.conv(x)))
-    
+
 class LKStar(nn.Module):
     """Large-Kernel Star Structure for YOLOv8"""
     
-    def __init__(self, c1, c2, k=13):
+    def __init__(self, c1, c2, k=13):  # Menambahkan nilai default untuk k
         super().__init__()
         self.split = c2 // 2  # Split channels
         self.conv1 = CBS(c1, c2, 1, 1)  # Initial pointwise Conv
@@ -105,46 +106,51 @@ class SimSPPF(nn.Module):
         return self.act(x)
 
 
-# 1. SPPCSPC (pengganti SPPF)
-class SPPCSPC(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=5):  # Tambahkan kernel_size
-        super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1)
-        self.pool1 = nn.MaxPool2d(kernel_size, stride=1, padding=kernel_size // 2)
-        self.pool2 = nn.MaxPool2d(9, stride=1, padding=4)
-        self.pool3 = nn.MaxPool2d(13, stride=1, padding=6)
-        self.conv2 = nn.Conv2d(out_channels * 2, out_channels, kernel_size=1)
+# EMA Attention Module
+class EMA(nn.Module):
+    def __init__(self, channels):
+        super(EMA, self).__init__()
+        self.conv1 = nn.Conv2d(channels, channels // 2, kernel_size=1, stride=1)
+        self.conv2 = nn.Conv2d(channels // 2, channels, kernel_size=1, stride=1)
+        self.sigmoid = nn.Sigmoid()
+    
+    def forward(self, x):
+        avg_out = torch.mean(x, dim=(2, 3), keepdim=True)
+        max_out, _ = torch.max(x, dim=(2, 3), keepdim=True)
+        out = self.conv1(avg_out + max_out)
+        out = self.conv2(out)
+        return x * self.sigmoid(out)
 
+# SPPCSPC Module (pengganti SPPF)
+class SPPCSPC(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(SPPCSPC, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=1)
+        self.pool1 = nn.MaxPool2d(kernel_size=5, stride=1, padding=2)
+        self.pool2 = nn.MaxPool2d(kernel_size=9, stride=1, padding=4)
+        self.pool3 = nn.MaxPool2d(kernel_size=13, stride=1, padding=6)
+        self.conv2 = nn.Conv2d(out_channels * 2, out_channels, kernel_size=1, stride=1)
+    
     def forward(self, x):
         x1 = self.conv1(x)
-        x2 = self.pool1(x1)
-        x3 = self.pool2(x1)
-        x4 = self.pool3(x1)
-        out = torch.cat([x1, x2, x3, x4], dim=1)
-        return self.conv2(out)
+        p1 = self.pool1(x1)
+        p2 = self.pool2(x1)
+        p3 = self.pool3(x1)
+        out = torch.cat([x1, p1, p2, p3], dim=1)
+        out = self.conv2(out)
+        return out
 
-# 2. EMA Attention Module
-class EMA(nn.Module):
-    def __init__(self, in_channels):
-        super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, in_channels // 2, kernel_size=1)
-        self.conv2 = nn.Conv2d(in_channels // 2, in_channels, kernel_size=1)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        attn = self.sigmoid(self.conv1(x))
-        return self.conv2(attn * x)
-
-# 3. SPD-Conv (pengganti Downsampling)
+# SPD-Conv (pengganti downsampling stride conv)
 class SPDConv(nn.Module):
     def __init__(self, in_channels, out_channels):
-        super().__init__()
+        super(SPDConv, self).__init__()
         self.spatial_to_depth = nn.PixelUnshuffle(2)
         self.conv = nn.Conv2d(in_channels * 4, out_channels, kernel_size=3, padding=1)
-
+    
     def forward(self, x):
         x = self.spatial_to_depth(x)
-        return self.conv(x)
+        x = self.conv(x)
+        return x
 
 
 class DFL(nn.Module):
