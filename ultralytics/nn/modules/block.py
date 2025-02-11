@@ -75,46 +75,54 @@ class LKConv(nn.Module):
         return self.act(x)
 
 class LKStar(nn.Module):
-    """LKStar Module: Menggunakan Large-Kernel Convolution dan Star-Structure untuk meningkatkan receptive field."""
+    """LKStar Module: Large-Kernel Convolution dengan Star-Structure."""
 
-    def __init__(self, in_channels, out_channels, kernel_size=13):
+    def __init__(self, in_channels, out_channels, kernel_size=13, shortcut=True, expansion=2):
         """
         Args:
             in_channels: Jumlah channel input.
             out_channels: Jumlah channel output.
             kernel_size: Ukuran kernel depthwise convolution.
+            shortcut: Gunakan residual connection atau tidak.
+            expansion: Faktor ekspansi channel.
         """
         super(LKStar, self).__init__()
 
-        # Membagi fitur menjadi dua jalur (Split Operation)
-        self.split_conv = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels // 2)
+        hidden_channels = out_channels // expansion  # Mengurangi ukuran channel sebelum pemrosesan
+
+        # Membagi fitur menjadi dua jalur
+        self.split_conv = nn.Conv2d(in_channels, hidden_channels, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(hidden_channels)
         self.act1 = nn.SiLU()
 
         # Jalur pertama: Depthwise Convolution dengan Large Kernel
-        self.large_kernel_conv = nn.Conv2d(out_channels // 2, out_channels // 2, 
+        self.large_kernel_conv = nn.Conv2d(hidden_channels, hidden_channels, 
                                            kernel_size=kernel_size, stride=1, 
-                                           padding=kernel_size // 2, groups=out_channels // 2, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_channels // 2)
+                                           padding=kernel_size // 2, groups=hidden_channels, bias=False)
+        self.bn2 = nn.BatchNorm2d(hidden_channels)
         self.act2 = nn.SiLU()
 
         # Jalur kedua: Depthwise Convolution dengan Small Kernel (3x3)
-        self.small_kernel_conv = nn.Conv2d(out_channels // 2, out_channels // 2, 
+        self.small_kernel_conv = nn.Conv2d(hidden_channels, hidden_channels, 
                                            kernel_size=3, stride=1, 
-                                           padding=1, groups=out_channels // 2, bias=False)
-        self.bn3 = nn.BatchNorm2d(out_channels // 2)
+                                           padding=1, groups=hidden_channels, bias=False)
+        self.bn3 = nn.BatchNorm2d(hidden_channels)
         self.act3 = nn.SiLU()
 
         # Elemen-wise Multiplication (Star Operation)
-        self.star_mult = nn.Conv2d(out_channels // 2, out_channels // 2, kernel_size=1, bias=False)
+        self.star_mult = nn.Conv2d(hidden_channels, hidden_channels, kernel_size=1, bias=False)
 
         # Konvolusi Akhir untuk Menggabungkan Output
-        self.conv_final = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
+        self.conv_final = nn.Conv2d(hidden_channels * 2, out_channels, kernel_size=1, bias=False)
         self.bn_final = nn.BatchNorm2d(out_channels)
         self.act_final = nn.SiLU()
 
+        self.shortcut = shortcut and in_channels == out_channels  # Residual connection
+
     def forward(self, x):
         """Forward pass dari LKStar module."""
+        identity = x  # Simpan shortcut
+
         x = self.act1(self.bn1(self.split_conv(x)))  # Split fitur awal
         x_large = self.act2(self.bn2(self.large_kernel_conv(x)))  # Jalur 1 - Large Kernel
         x_small = self.act3(self.bn3(self.small_kernel_conv(x)))  # Jalur 2 - Small Kernel
@@ -125,7 +133,9 @@ class LKStar(nn.Module):
         # Menggabungkan fitur dan melakukan konvolusi akhir
         out = torch.cat([x_large, x_star], dim=1)
         out = self.act_final(self.bn_final(self.conv_final(out)))
-        return out
+
+        # Residual connection jika shortcut diaktifkan
+        return out + identity if self.shortcut else out
     
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
