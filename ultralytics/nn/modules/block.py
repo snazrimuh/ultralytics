@@ -74,11 +74,11 @@ class LKConv(nn.Module):
         return self.act(x)
 
 class LKStar(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=13, use_bn=True, activation=True):
+    def __init__(self, in_channels, out_channels, kernel_size=13, use_bn=True, activation=True, stride=1):
         super(LKStar, self).__init__()
         self.branch1 = LKConv(in_channels, out_channels, kernel_size)
         self.branch2 = LKConv(in_channels, out_channels, kernel_size)
-        self.fusion = nn.Conv2d(out_channels, out_channels, kernel_size=1)
+        self.fusion = nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=stride)
         self.use_bn = use_bn
         self.activation = activation
         if self.use_bn:
@@ -90,6 +90,7 @@ class LKStar(nn.Module):
         self.channel_adjust = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
 
     def forward(self, x):
+        print(f"LKStar input shape: {x.shape}")
         out1 = self.branch1(x)
         out2 = self.branch2(x)
         fused = self.fusion(out1 * out2)  # Element-wise multiplication (Star Operation)
@@ -98,8 +99,9 @@ class LKStar(nn.Module):
         if self.activation:
             fused = self.act(fused)
         
-        # Ensure the output has the correct channel size
-        return self.channel_adjust(fused)
+        fused = self.channel_adjust(fused)
+        print(f"LKStar output shape: {fused.shape}")
+        return fused
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
