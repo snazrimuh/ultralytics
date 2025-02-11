@@ -984,12 +984,13 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             C3x,
             RepC3,
             PSA,
-            SCDown,
-            C2fCIB,
+            # SCDown,
+            # C2fCIB,
         }
     )
     repeat_modules = frozenset(  # modules with 'repeat' arguments
         {
+            LKStar,
             BottleneckCSP,
             C1,
             C2,
@@ -1002,7 +1003,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             C3x,
             RepC3,
             C2fPSA,
-            C2fCIB,
+            # C2fCIB,
             C2PSA,
         }
     )
