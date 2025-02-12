@@ -73,19 +73,21 @@ class RFAConv(nn.Module):
         """
         super(RFAConv, self).__init__()
 
-        self.hidden_channels = out_channels // len(kernel_sizes)  # Pembagian channel untuk tiap kernel size
+        self.num_scales = len(kernel_sizes)  # Banyaknya skala receptive field
+        self.hidden_channels = out_channels // self.num_scales  # Distribusi channel untuk tiap skala
 
         # **Multi-scale Convolutions (Depthwise Separable Convolution)**
         self.convs = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(in_channels, self.hidden_channels, kernel_size=k, stride=1, padding=k // 2, groups=in_channels, bias=False),  # Depthwise
+                nn.Conv2d(in_channels, self.hidden_channels, kernel_size=k, stride=1, 
+                          padding=k // 2, groups=in_channels if in_channels % self.hidden_channels == 0 else 1, bias=False),  # Fix groups issue
                 nn.Conv2d(self.hidden_channels, self.hidden_channels, kernel_size=1, bias=False),  # Pointwise
                 nn.BatchNorm2d(self.hidden_channels),
                 nn.SiLU()
             ) for k in kernel_sizes
         ])
 
-        # **Attention Module (Channel Attention untuk menggabungkan informasi dari berbagai receptive field)**
+        # **Attention Module (Channel Attention)**
         self.attention = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),  # Global Average Pooling
             nn.Conv2d(out_channels, out_channels // reduction, kernel_size=1, bias=False),
@@ -111,7 +113,6 @@ class RFAConv(nn.Module):
         # Final pointwise convolution
         x = self.act_final(self.bn_final(self.conv_final(x)))
         return x
-
 
 class LKStar(nn.Module):
     """LKStar Module: Large-Kernel Convolution dengan Star-Structure."""
