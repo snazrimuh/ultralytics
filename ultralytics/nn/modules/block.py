@@ -72,8 +72,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 class RFAConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=4):
+    def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=16):
         super(RFAConv, self).__init__()
 
         # Convolution layers with different kernel sizes (same out_channels)
@@ -83,34 +87,32 @@ class RFAConv(nn.Module):
         ])
 
         # Attention mechanism layers
-        reduced_channels = max(in_channels // reduction, 1)
+        reduced_channels = max(in_channels // reduction, 1)  # Jangan sampai 0
         self.fc1 = nn.Conv2d(in_channels, reduced_channels, kernel_size=1, bias=False)
         self.fc2 = nn.Conv2d(reduced_channels, len(kernel_sizes), kernel_size=1, bias=False)
 
-        # Extra Conv to unify all output channel sizes
-        self.channel_fix = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
+        # Output layer to ensure channel consistency
+        self.output_conv = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
 
     def forward(self, x):
-        # Apply multiple convolution operations (ensuring same out_channels)
+        # Multiple convolutions (ensure out_channels is the same for all)
         features = [conv(x) for conv in self.convs]  # List of (B, out_channels, H, W)
         
-        # Fix channel mismatch by making all tensors have the same out_channels
-        features = [self.channel_fix(f) for f in features]  
-
-        # Stack along a new dimension for attention weighting
+        # Stack along a new dimension
         features = torch.stack(features, dim=1)  # (B, K, C, H, W)
 
         # Attention mechanism
-        attention = F.adaptive_avg_pool2d(x, 1)  # Output: (B, in_channels, 1, 1)
-        attention = self.fc1(attention)  
+        attention = F.adaptive_avg_pool2d(x, 1)  # (B, in_channels, 1, 1)
+        attention = self.fc1(attention)
         attention = F.relu(attention, inplace=True)
         attention = self.fc2(attention)
         attention = F.softmax(attention, dim=1)  # (B, K, 1, 1)
 
-        # Feature fusion with attention weights
+        # Feature fusion
         fused = torch.sum(features * attention.unsqueeze(2), dim=1)  
-        return fused
 
+        # Final output projection
+        return self.output_conv(fused)
 
 
 class LKStar(nn.Module):
