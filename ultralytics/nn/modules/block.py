@@ -64,36 +64,50 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 class RFAConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=4):
         super(RFAConv, self).__init__()
 
         # Multiple convolution layers with different kernel sizes
         self.convs = nn.ModuleList([
-            nn.Conv2d(in_channels, out_channels, kernel_size=k, stride=1, padding=k//2, groups=1, bias=False)
+            nn.Conv2d(in_channels, out_channels, kernel_size=k, stride=1, padding=k//2, bias=False)
             for k in kernel_sizes
         ])
 
         # Reduction layer for attention mechanism
-        reduced_channels = max(in_channels // reduction, 1)  # Pakai in_channels, bukan out_channels
+        reduced_channels = max(in_channels // reduction, 1)
 
-        self.fc1 = nn.Conv2d(in_channels, reduced_channels, kernel_size=1, bias=False)  
+        self.fc1 = nn.Conv2d(in_channels, reduced_channels, kernel_size=1, bias=False)
         self.fc2 = nn.Conv2d(reduced_channels, len(kernel_sizes), kernel_size=1, bias=False)
+
+        # Ensure all outputs have the same channel size
+        self.channel_adjust = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
 
     def forward(self, x):
         # Apply multiple convolution operations
-        features = torch.stack([conv(x) for conv in self.convs], dim=1)  # (B, K, C, H, W)
+        features = [conv(x) for conv in self.convs]  # List of (B, out_channels, H, W)
+        
+        # Ensure all tensors have the same channel size
+        features = [self.channel_adjust(f) for f in features]  
+
+        # Stack along a new dimension for attention weighting
+        features = torch.stack(features, dim=1)  # (B, K, C, H, W)
 
         # Attention mechanism
-        attention = F.adaptive_avg_pool2d(x, 1)  # Ukuran output (B, in_channels, 1, 1)
-        attention = self.fc1(attention)  # Pastikan input ke fc1 adalah in_channels
+        attention = F.adaptive_avg_pool2d(x, 1)  # Output: (B, in_channels, 1, 1)
+        attention = self.fc1(attention)  
         attention = F.relu(attention, inplace=True)
         attention = self.fc2(attention)
-        attention = F.softmax(attention, dim=1)  # Bobot perhatian
+        attention = F.softmax(attention, dim=1)  # (B, K, 1, 1)
 
         # Feature fusion with attention weights
-        fused = torch.sum(features * attention.unsqueeze(-1), dim=1)  
+        fused = torch.sum(features * attention.unsqueeze(2), dim=1)  
         return fused
+
 
 
 
