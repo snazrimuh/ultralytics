@@ -61,23 +61,30 @@ __all__ = (
 
 
 class RFAConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=16):
+    def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=4):
         super(RFAConv, self).__init__()
         self.convs = nn.ModuleList([
             nn.Conv2d(in_channels, out_channels, kernel_size=k, stride=1, padding=k//2, groups=in_channels, bias=False)
             for k in kernel_sizes
         ])
-        self.fc1 = nn.Conv2d(out_channels, out_channels // reduction, kernel_size=1, bias=False)
-        self.fc2 = nn.Conv2d(out_channels // reduction, len(kernel_sizes), kernel_size=1, bias=False)
+        reduced_channels = max(out_channels // reduction, 1)  # Pastikan minimal 1 channel
+        
+        self.fc1 = nn.Conv2d(out_channels, reduced_channels, kernel_size=1, bias=False)
+        self.fc2 = nn.Conv2d(reduced_channels, len(kernel_sizes), kernel_size=1, bias=False)
 
     def forward(self, x):
+        # Proses konvolusi dengan berbagai kernel
         features = torch.stack([conv(x) for conv in self.convs], dim=1)  # (B, K, C, H, W)
-        attention = F.avg_pool2d(x, x.size(2)).view(x.size(0), x.size(1), 1, 1)  # Global Pooling
+        
+        # Global Average Pooling untuk atensi
+        attention = F.adaptive_avg_pool2d(x, 1)  # Ubah menjadi (B, C, 1, 1)
         attention = self.fc1(attention)
         attention = F.relu(attention, inplace=True)
         attention = self.fc2(attention)
-        attention = F.softmax(attention, dim=1)  # Generate attention weights
-        fused = torch.sum(features * attention.unsqueeze(-1), dim=1)  # Apply attention
+        attention = F.softmax(attention, dim=1)  # Bobot perhatian
+        
+        # Penggabungan fitur dengan perhatian
+        fused = torch.sum(features * attention.unsqueeze(-1), dim=1)
         return fused
 
 
