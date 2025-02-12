@@ -76,9 +76,9 @@ class RFAConv(nn.Module):
 
         self.num_scales = len(kernel_sizes)  # Banyaknya skala receptive field
 
-        # **Pastikan jumlah channel selalu valid**
-        self.hidden_channels = max(1, out_channels // self.num_scales)  # Pastikan tidak nol
-        self.total_channels = self.hidden_channels * self.num_scales  # Total channel setelah multi-scale fusion
+        # **Pastikan jumlah channel valid**
+        self.hidden_channels = max(1, out_channels // self.num_scales)
+        self.total_channels = self.hidden_channels * self.num_scales  # Total setelah multi-scale fusion
 
         # **Multi-scale Convolutions (Depthwise Separable Convolution)**
         self.convs = nn.ModuleList([
@@ -94,13 +94,13 @@ class RFAConv(nn.Module):
         # **Attention Module (Channel Attention)**
         self.attention = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),  # Global Average Pooling
-            nn.Conv2d(self.total_channels, max(1, self.total_channels // reduction), kernel_size=1, bias=False),  # Pastikan tidak 0
+            nn.Conv2d(self.total_channels, max(1, self.total_channels // reduction), kernel_size=1, bias=False),
             nn.ReLU(),
             nn.Conv2d(max(1, self.total_channels // reduction), self.total_channels, kernel_size=1, bias=False),
             nn.Sigmoid()
         )
 
-        # **Final Pointwise Convolution untuk menyamakan jumlah channel**
+        # **Final Pointwise Convolution untuk memastikan jumlah channel sesuai dengan YOLOv8**
         self.conv_adjust = nn.Conv2d(self.total_channels, out_channels, kernel_size=1, bias=False)
         self.bn_adjust = nn.BatchNorm2d(out_channels)
         self.act_adjust = nn.SiLU()
@@ -110,7 +110,7 @@ class RFAConv(nn.Module):
         # **Multi-scale feature extraction**
         multi_scale_features = [conv(x) for conv in self.convs]
 
-        # **Pastikan semua output memiliki ukuran spasial yang sama**
+        # **Pastikan semua output memiliki ukuran spasial yang sama sebelum torch.cat()**
         max_h, max_w = max([f.shape[2] for f in multi_scale_features]), max([f.shape[3] for f in multi_scale_features])
         multi_scale_features = [F.interpolate(f, size=(max_h, max_w), mode="bilinear", align_corners=False) for f in multi_scale_features]
 
@@ -118,11 +118,15 @@ class RFAConv(nn.Module):
         multi_scale_features = torch.cat(multi_scale_features, dim=1)
 
         # **Attention mechanism**
-        attention_weights = self.attention(multi_scale_features)  # Hitung bobot perhatian
-        x = multi_scale_features * attention_weights  # Terapkan attention
-        
+        attention_weights = self.attention(multi_scale_features)
+        x = multi_scale_features * attention_weights
+
         # **Final pointwise convolution untuk menyamakan jumlah channel**
         x = self.act_adjust(self.bn_adjust(self.conv_adjust(x)))
+
+        # **Pastikan jumlah channel sesuai dengan yang diharapkan YOLOv8**
+        assert x.shape[1] == self.conv_adjust.out_channels, f"Channel mismatch: expected {self.conv_adjust.out_channels}, got {x.shape[1]}"
+
         return x
 
 class LKStar(nn.Module):
