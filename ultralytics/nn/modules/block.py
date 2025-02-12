@@ -75,10 +75,10 @@ class RFAConv(nn.Module):
         """
         super(RFAConv, self).__init__()
         
-        # Menentukan jumlah channel tersembunyi
-        hidden_channels = max(out_channels // len(kernel_sizes), 1)  # Hindari hidden_channels = 0
+        # **Menentukan jumlah channel tersembunyi (Pastikan selalu kelipatan in_channels)**
+        hidden_channels = max(in_channels // len(kernel_sizes), 1)
 
-        # **Multi-scale Convolutions (Depthwise Separable Convolution)**
+        # **Multi-scale Depthwise Convolutions**
         self.convs = nn.ModuleList([
             nn.Sequential(
                 nn.Conv2d(in_channels, hidden_channels, kernel_size=k, stride=1, 
@@ -92,19 +92,19 @@ class RFAConv(nn.Module):
         # **Attention Module (Channel Attention)**
         self.attention = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),  # Global Average Pooling
-            nn.Conv2d(out_channels, out_channels // reduction, kernel_size=1, bias=False),
+            nn.Conv2d(hidden_channels * len(kernel_sizes), out_channels // reduction, kernel_size=1, bias=False),
             nn.ReLU(),
-            nn.Conv2d(out_channels // reduction, out_channels, kernel_size=1, bias=False),
+            nn.Conv2d(out_channels // reduction, hidden_channels * len(kernel_sizes), kernel_size=1, bias=False),
             nn.Sigmoid()
         )
 
-        # **Final Convolution untuk Menggabungkan Fitur**
+        # **Final Convolution untuk Mengembalikan ke out_channels**
         self.conv_final = nn.Conv2d(hidden_channels * len(kernel_sizes), out_channels, kernel_size=1, bias=False)
         self.bn_final = nn.BatchNorm2d(out_channels)
         self.act_final = nn.SiLU()
 
     def forward(self, x):
-        x_multi = torch.cat([conv(x) for conv in self.convs], dim=1)  # Gabungkan output dari berbagai skala
+        x_multi = torch.cat([conv(x) for conv in self.convs], dim=1)  # Gabungkan fitur multi-scale
         attention_weights = self.attention(x_multi)  # Hitung bobot perhatian
         x_attended = x_multi * attention_weights  # Terapkan attention
         out = self.act_final(self.bn_final(self.conv_final(x_attended)))  # Konvolusi akhir
