@@ -107,8 +107,12 @@ class LKStar(nn.Module):
         identity = x  # Simpan shortcut
 
         x = self.act1(self.bn1(self.split_conv(x)))  # Split fitur awal
+        
         x_large = self.act2(self.bn2(self.large_kernel_conv(x)))  # Jalur 1 - Large Kernel
         x_small = self.act3(self.bn3(self.small_kernel_conv(x)))  # Jalur 2 - Small Kernel
+
+        # **LOGGING: Cek ukuran sebelum operasi**
+        print(f"x_large: {x_large.shape}, x_small: {x_small.shape}")
 
         # **Fix Ukuran Sebelum Elemen-wise Multiplication**
         if x_large.shape != x_small.shape:
@@ -117,13 +121,23 @@ class LKStar(nn.Module):
         # Star Operation (Element-wise Multiplication)
         x_star = self.star_mult(x_large) * x_small  # Elemen-wise multiplication
         
-        # Menggabungkan fitur dan melakukan konvolusi akhir
+        # **LOGGING: Cek ukuran sebelum concat**
+        print(f"x_large: {x_large.shape}, x_star: {x_star.shape}")
+
+        # **Fix Padding Sebelum Concat**
+        if x_large.shape != x_star.shape:
+            diffY = x_large.shape[2] - x_star.shape[2]
+            diffX = x_large.shape[3] - x_star.shape[3]
+            x_star = F.pad(x_star, [0, diffX, 0, diffY])
+
+        # **Gabungkan fitur dan lakukan konvolusi akhir**
         out = torch.cat([x_large, x_star], dim=1)
         out = self.act_final(self.bn_final(self.conv_final(out)))
 
         # **Fix Ukuran Sebelum Residual Connection**
         if self.shortcut:
             if identity.shape != out.shape:
+                print(f"Fixing shortcut size: identity={identity.shape}, out={out.shape}")
                 identity = F.interpolate(identity, size=out.shape[2:], mode="bilinear", align_corners=False)
             out += identity  # Residual connection
 
