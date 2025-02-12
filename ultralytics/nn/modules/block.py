@@ -58,21 +58,31 @@ __all__ = (
     "SCDown",
     "TorchVision",
 )
-class RFAConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=16):
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
+class RFAConv(nn.Module):
+    """Receptive-Field Attention Convolution (RFAConv) module to replace standard convolution in YOLOv8."""
+
+    def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=16, expansion=2):
         """
+        Initializes RFAConv:
+        - Uses multiple receptive field sizes to improve feature extraction.
+        - Employs depthwise separable convolutions for efficiency.
+        - Includes an attention mechanism to adaptively weight different kernel sizes.
+
         Args:
-            in_channels: Jumlah channel input.
-            out_channels: Jumlah channel output.
-            kernel_sizes: Daftar ukuran kernel untuk multi-scale receptive field.
-            reduction: Faktor reduksi dalam attention module.
+            in_channels (int): Number of input channels.
+            out_channels (int): Number of output channels.
+            kernel_sizes (list): List of kernel sizes for multi-scale receptive field.
+            reduction (int): Reduction factor for channel attention.
+            expansion (int): Expansion factor for depthwise convolution.
         """
         super(RFAConv, self).__init__()
+        self.hidden_channels = out_channels // len(kernel_sizes)  # Split output channels among different kernel sizes
 
-        self.hidden_channels = out_channels // len(kernel_sizes)  # Pembagian channel untuk tiap kernel size
-
-        # **Multi-scale Convolutions (Depthwise Separable Convolution)**
+        # Multi-scale Convolutions (Depthwise Separable Convolution)
         self.convs = nn.ModuleList([
             nn.Sequential(
                 nn.Conv2d(in_channels, self.hidden_channels, kernel_size=k, stride=1, padding=k // 2, groups=in_channels, bias=False),  # Depthwise
@@ -82,7 +92,7 @@ class RFAConv(nn.Module):
             ) for k in kernel_sizes
         ])
 
-        # **Attention Module (Channel Attention untuk menggabungkan informasi dari berbagai receptive field)**
+        # Attention Module (Channel Attention)
         self.attention = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),  # Global Average Pooling
             nn.Conv2d(out_channels, out_channels // reduction, kernel_size=1, bias=False),
@@ -91,23 +101,26 @@ class RFAConv(nn.Module):
             nn.Sigmoid()
         )
 
-        # **Final Pointwise Convolution untuk menggabungkan output dari semua kernel**
+        # Final Pointwise Convolution for Feature Fusion
         self.conv_final = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
         self.bn_final = nn.BatchNorm2d(out_channels)
         self.act_final = nn.SiLU()
 
     def forward(self, x):
-        """Forward pass dari RFAConv."""
-        # Multi-scale feature extraction
-        multi_scale_features = torch.cat([conv(x) for conv in self.convs], dim=1)  # Gabungkan semua output
-        
-        # Attention mechanism
-        attention_weights = self.attention(multi_scale_features)  # Hitung bobot perhatian
-        x = multi_scale_features * attention_weights  # Terapkan attention
-        
-        # Final pointwise convolution
-        x = self.act_final(self.bn_final(self.conv_final(x)))
+        """Forward pass through RFAConv module."""
+        multi_scale_features = torch.cat([conv(x) for conv in self.convs], dim=1)  # Combine all kernel outputs
+        attention_weights = self.attention(multi_scale_features)  # Compute attention weights
+        x = multi_scale_features * attention_weights  # Apply attention weights
+        x = self.act_final(self.bn_final(self.conv_final(x)))  # Final feature fusion
         return x
+
+# Example Usage
+if __name__ == "__main__":
+    model = RFAConv(in_channels=128, out_channels=128, kernel_sizes=[3, 5, 7], reduction=16, expansion=2)
+    dummy_input = torch.randn(1, 128, 32, 32)  # Example input with size 32x32
+    output = model(dummy_input)
+    print(output.shape)  # Expected output shape: (1, 128, 32, 32)
+
 
 class LKStar(nn.Module):
     """LKStar Module: Large-Kernel Convolution dengan Star-Structure."""
