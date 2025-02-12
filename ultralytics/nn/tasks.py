@@ -14,6 +14,7 @@ from ultralytics.nn.modules import (
     LKStar,
     SimSPPF,
     SPPCSPC, 
+    C2f_EMA,
     EMA, 
     SPDConv,
     AIFI,
@@ -957,6 +958,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             LKStar,
             SimSPPF,
             SPPCSPC, 
+            C2f_EMA,
             EMA, 
             SPDConv,
             Classify,
@@ -997,6 +999,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
     repeat_modules = frozenset(  # modules with 'repeat' arguments
         {
             LKStar,
+            C2f_EMA,
             BottleneckCSP,
             C1,
             C2,
