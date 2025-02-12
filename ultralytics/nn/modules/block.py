@@ -74,12 +74,16 @@ class RFAConv(nn.Module):
         super(RFAConv, self).__init__()
 
         self.num_scales = len(kernel_sizes)  # Banyaknya skala receptive field
-        self.hidden_channels = out_channels // self.num_scales  # Distribusi channel untuk tiap skala
+
+        # **Pastikan `hidden_channels` selalu kelipatan `out_channels`**
+        self.hidden_channels = out_channels // self.num_scales
+        if self.hidden_channels * self.num_scales != out_channels:
+            self.hidden_channels = out_channels // self.num_scales + 1  # Adjust agar pas
 
         # **Multi-scale Convolutions (Depthwise Separable Convolution)**
         self.convs = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(in_channels, self.hidden_channels, kernel_size=k, stride=1, 
+                nn.Conv2d(in_channels, self.hidden_channels, kernel_size=k, stride=1,
                           padding=k // 2, groups=in_channels if in_channels % self.hidden_channels == 0 else 1, bias=False),  # Fix groups issue
                 nn.Conv2d(self.hidden_channels, self.hidden_channels, kernel_size=1, bias=False),  # Pointwise
                 nn.BatchNorm2d(self.hidden_channels),
@@ -90,27 +94,34 @@ class RFAConv(nn.Module):
         # **Attention Module (Channel Attention)**
         self.attention = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),  # Global Average Pooling
-            nn.Conv2d(out_channels, out_channels // reduction, kernel_size=1, bias=False),
+            nn.Conv2d(out_channels, max(1, out_channels // reduction), kernel_size=1, bias=False),  # Pastikan tidak 0
             nn.ReLU(),
-            nn.Conv2d(out_channels // reduction, out_channels, kernel_size=1, bias=False),
+            nn.Conv2d(max(1, out_channels // reduction), out_channels, kernel_size=1, bias=False),
             nn.Sigmoid()
         )
 
         # **Final Pointwise Convolution untuk menggabungkan output dari semua kernel**
-        self.conv_final = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
+        self.conv_final = nn.Conv2d(self.hidden_channels * self.num_scales, out_channels, kernel_size=1, bias=False)
         self.bn_final = nn.BatchNorm2d(out_channels)
         self.act_final = nn.SiLU()
 
     def forward(self, x):
         """Forward pass dari RFAConv."""
         # Multi-scale feature extraction
-        multi_scale_features = torch.cat([conv(x) for conv in self.convs], dim=1)  # Gabungkan semua output
-        
-        # Attention mechanism
+        multi_scale_features = [conv(x) for conv in self.convs]
+
+        # **Pastikan semua output memiliki ukuran spasial yang sama**
+        max_h, max_w = max([f.shape[2] for f in multi_scale_features]), max([f.shape[3] for f in multi_scale_features])
+        multi_scale_features = [F.interpolate(f, size=(max_h, max_w), mode="bilinear", align_corners=False) for f in multi_scale_features]
+
+        # **Gabungkan fitur dari semua kernel**
+        multi_scale_features = torch.cat(multi_scale_features, dim=1)
+
+        # **Attention mechanism**
         attention_weights = self.attention(multi_scale_features)  # Hitung bobot perhatian
         x = multi_scale_features * attention_weights  # Terapkan attention
         
-        # Final pointwise convolution
+        # **Final pointwise convolution**
         x = self.act_final(self.bn_final(self.conv_final(x)))
         return x
 
