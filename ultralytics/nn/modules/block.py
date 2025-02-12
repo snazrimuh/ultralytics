@@ -57,7 +57,6 @@ __all__ = (
     "TorchVision",
 )
 
-
 class LKStar(nn.Module):
     """LKStar Module: Large-Kernel Convolution dengan Star-Structure."""
 
@@ -111,9 +110,9 @@ class LKStar(nn.Module):
         x_large = self.act2(self.bn2(self.large_kernel_conv(x)))  # Jalur 1 - Large Kernel
         x_small = self.act3(self.bn3(self.small_kernel_conv(x)))  # Jalur 2 - Small Kernel
 
-        # **FIX PADDING ERROR** → Pastikan ukuran sama sebelum elemen-wise multiplication
+        # **Fix Ukuran Sebelum Elemen-wise Multiplication**
         if x_large.shape != x_small.shape:
-            x_small = F.pad(x_small, (0, x_large.shape[-1] - x_small.shape[-1], 0, x_large.shape[-2] - x_small.shape[-2]))
+            x_small = F.interpolate(x_small, size=x_large.shape[2:], mode="bilinear", align_corners=False)
 
         # Star Operation (Element-wise Multiplication)
         x_star = self.star_mult(x_large) * x_small  # Elemen-wise multiplication
@@ -122,9 +121,13 @@ class LKStar(nn.Module):
         out = torch.cat([x_large, x_star], dim=1)
         out = self.act_final(self.bn_final(self.conv_final(out)))
 
-        # Residual connection jika shortcut diaktifkan
-        return out + identity if self.shortcut else out
-    
+        # **Fix Ukuran Sebelum Residual Connection**
+        if self.shortcut:
+            if identity.shape != out.shape:
+                identity = F.interpolate(identity, size=out.shape[2:], mode="bilinear", align_corners=False)
+            out += identity  # Residual connection
+
+        return out
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
