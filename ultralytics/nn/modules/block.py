@@ -59,9 +59,8 @@ __all__ = (
     "TorchVision",
 )
 class RFAConv(nn.Module):
-    """Receptive-Field Attention Convolution (RFAConv) untuk menggantikan konvolusi standar pada YOLOv8."""
-
     def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=16):
+
         """
         Args:
             in_channels: Jumlah channel input.
