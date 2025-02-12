@@ -60,6 +60,7 @@ __all__ = (
 )
 
 
+
 class RFAConv(nn.Module):
     """Receptive-Field Attention Convolution (RFAConv) untuk menggantikan konvolusi standar pada YOLOv8."""
 
@@ -75,10 +76,9 @@ class RFAConv(nn.Module):
 
         self.num_scales = len(kernel_sizes)  # Banyaknya skala receptive field
 
-        # **Pastikan `hidden_channels` selalu kelipatan `out_channels`**
-        self.hidden_channels = out_channels // self.num_scales
-        if self.hidden_channels * self.num_scales != out_channels:
-            self.hidden_channels = out_channels // self.num_scales + 1  # Adjust agar pas
+        # **Pastikan `hidden_channels` selalu kelipatan `num_scales`**
+        self.hidden_channels = max(1, out_channels // self.num_scales)  # Pastikan tidak nol
+        total_channels = self.hidden_channels * self.num_scales  # Total channel setelah multi-scale fusion
 
         # **Multi-scale Convolutions (Depthwise Separable Convolution)**
         self.convs = nn.ModuleList([
@@ -94,20 +94,20 @@ class RFAConv(nn.Module):
         # **Attention Module (Channel Attention)**
         self.attention = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),  # Global Average Pooling
-            nn.Conv2d(out_channels, max(1, out_channels // reduction), kernel_size=1, bias=False),  # Pastikan tidak 0
+            nn.Conv2d(total_channels, max(1, total_channels // reduction), kernel_size=1, bias=False),  # Pastikan tidak 0
             nn.ReLU(),
-            nn.Conv2d(max(1, out_channels // reduction), out_channels, kernel_size=1, bias=False),
+            nn.Conv2d(max(1, total_channels // reduction), total_channels, kernel_size=1, bias=False),
             nn.Sigmoid()
         )
 
         # **Final Pointwise Convolution untuk menggabungkan output dari semua kernel**
-        self.conv_final = nn.Conv2d(self.hidden_channels * self.num_scales, out_channels, kernel_size=1, bias=False)
+        self.conv_final = nn.Conv2d(total_channels, out_channels, kernel_size=1, bias=False)
         self.bn_final = nn.BatchNorm2d(out_channels)
         self.act_final = nn.SiLU()
 
     def forward(self, x):
         """Forward pass dari RFAConv."""
-        # Multi-scale feature extraction
+        # **Multi-scale feature extraction**
         multi_scale_features = [conv(x) for conv in self.convs]
 
         # **Pastikan semua output memiliki ukuran spasial yang sama**
