@@ -61,54 +61,56 @@ __all__ = (
 
 
 class RFAConv(nn.Module):
+    """Receptive-Field Attention Convolution (RFAConv) untuk menggantikan konvolusi standar pada YOLOv8."""
+
     def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=16):
         """
-        Receptive-Field Attention Convolution (RFAConv).
-        - Menggunakan multi-scale depthwise convolution untuk meningkatkan receptive field.
-        - Menggunakan attention module untuk mengontrol bobot tiap receptive field.
-
         Args:
-            in_channels (int): Jumlah channel input.
-            out_channels (int): Jumlah channel output.
-            kernel_sizes (list): Daftar ukuran kernel untuk multi-scale receptive field.
-            reduction (int): Faktor reduksi dalam attention module.
+            in_channels: Jumlah channel input.
+            out_channels: Jumlah channel output.
+            kernel_sizes: Daftar ukuran kernel untuk multi-scale receptive field.
+            reduction: Faktor reduksi dalam attention module.
         """
         super(RFAConv, self).__init__()
-        
-        # **Menentukan jumlah channel tersembunyi (Pastikan selalu kelipatan in_channels)**
-        hidden_channels = max(in_channels // len(kernel_sizes), 1)
 
-        # **Multi-scale Depthwise Convolutions**
+        self.hidden_channels = out_channels // len(kernel_sizes)  # Pembagian channel untuk tiap kernel size
+
+        # **Multi-scale Convolutions (Depthwise Separable Convolution)**
         self.convs = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(in_channels, hidden_channels, kernel_size=k, stride=1, 
-                          padding=k // 2, groups=hidden_channels, bias=False),  # Depthwise
-                nn.Conv2d(hidden_channels, hidden_channels, kernel_size=1, bias=False),  # Pointwise
-                nn.BatchNorm2d(hidden_channels),
+                nn.Conv2d(in_channels, self.hidden_channels, kernel_size=k, stride=1, padding=k // 2, groups=in_channels, bias=False),  # Depthwise
+                nn.Conv2d(self.hidden_channels, self.hidden_channels, kernel_size=1, bias=False),  # Pointwise
+                nn.BatchNorm2d(self.hidden_channels),
                 nn.SiLU()
             ) for k in kernel_sizes
         ])
 
-        # **Attention Module (Channel Attention)**
+        # **Attention Module (Channel Attention untuk menggabungkan informasi dari berbagai receptive field)**
         self.attention = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),  # Global Average Pooling
-            nn.Conv2d(hidden_channels * len(kernel_sizes), out_channels // reduction, kernel_size=1, bias=False),
+            nn.Conv2d(out_channels, out_channels // reduction, kernel_size=1, bias=False),
             nn.ReLU(),
-            nn.Conv2d(out_channels // reduction, hidden_channels * len(kernel_sizes), kernel_size=1, bias=False),
+            nn.Conv2d(out_channels // reduction, out_channels, kernel_size=1, bias=False),
             nn.Sigmoid()
         )
 
-        # **Final Convolution untuk Mengembalikan ke out_channels**
-        self.conv_final = nn.Conv2d(hidden_channels * len(kernel_sizes), out_channels, kernel_size=1, bias=False)
+        # **Final Pointwise Convolution untuk menggabungkan output dari semua kernel**
+        self.conv_final = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
         self.bn_final = nn.BatchNorm2d(out_channels)
         self.act_final = nn.SiLU()
 
     def forward(self, x):
-        x_multi = torch.cat([conv(x) for conv in self.convs], dim=1)  # Gabungkan fitur multi-scale
-        attention_weights = self.attention(x_multi)  # Hitung bobot perhatian
-        x_attended = x_multi * attention_weights  # Terapkan attention
-        out = self.act_final(self.bn_final(self.conv_final(x_attended)))  # Konvolusi akhir
-        return out
+        """Forward pass dari RFAConv."""
+        # Multi-scale feature extraction
+        multi_scale_features = torch.cat([conv(x) for conv in self.convs], dim=1)  # Gabungkan semua output
+        
+        # Attention mechanism
+        attention_weights = self.attention(multi_scale_features)  # Hitung bobot perhatian
+        x = multi_scale_features * attention_weights  # Terapkan attention
+        
+        # Final pointwise convolution
+        x = self.act_final(self.bn_final(self.conv_final(x)))
+        return x
 
 
 class LKStar(nn.Module):
