@@ -58,14 +58,11 @@ __all__ = (
     "SCDown",
     "TorchVision",
 )
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 class RFAConv(nn.Module):
     """Receptive-Field Attention Convolution (RFAConv) module to replace standard convolution in YOLOv8."""
 
-    def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=16, expansion=2):
+    def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=16, expansion=1):
         """
         Initializes RFAConv:
         - Uses multiple receptive field sizes to improve feature extraction.
@@ -80,13 +77,14 @@ class RFAConv(nn.Module):
             expansion (int): Expansion factor for depthwise convolution.
         """
         super(RFAConv, self).__init__()
-        self.hidden_channels = out_channels // len(kernel_sizes)  # Split output channels among different kernel sizes
+        self.hidden_channels = out_channels // len(kernel_sizes)  # Membagi channel untuk setiap kernel
 
         # Multi-scale Convolutions (Depthwise Separable Convolution)
         self.convs = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(in_channels, self.hidden_channels, kernel_size=k, stride=1, padding=k // 2, groups=in_channels, bias=False),  # Depthwise
-                nn.Conv2d(self.hidden_channels, self.hidden_channels, kernel_size=1, bias=False),  # Pointwise
+                nn.Conv2d(in_channels, in_channels, kernel_size=k, stride=1, 
+                          padding=k // 2, groups=in_channels if in_channels == out_channels else 1, bias=False),  # Depthwise
+                nn.Conv2d(in_channels, self.hidden_channels, kernel_size=1, bias=False),  # Pointwise
                 nn.BatchNorm2d(self.hidden_channels),
                 nn.SiLU()
             ) for k in kernel_sizes
@@ -108,19 +106,11 @@ class RFAConv(nn.Module):
 
     def forward(self, x):
         """Forward pass through RFAConv module."""
-        multi_scale_features = torch.cat([conv(x) for conv in self.convs], dim=1)  # Combine all kernel outputs
-        attention_weights = self.attention(multi_scale_features)  # Compute attention weights
-        x = multi_scale_features * attention_weights  # Apply attention weights
-        x = self.act_final(self.bn_final(self.conv_final(x)))  # Final feature fusion
+        multi_scale_features = torch.cat([conv(x) for conv in self.convs], dim=1)  # Gabungkan semua kernel outputs
+        attention_weights = self.attention(multi_scale_features)  # Hitung bobot perhatian
+        x = multi_scale_features * attention_weights  # Terapkan attention
+        x = self.act_final(self.bn_final(self.conv_final(x)))  # Feature fusion
         return x
-
-# Example Usage
-if __name__ == "__main__":
-    model = RFAConv(in_channels=128, out_channels=128, kernel_sizes=[3, 5, 7], reduction=16, expansion=2)
-    dummy_input = torch.randn(1, 128, 32, 32)  # Example input with size 32x32
-    output = model(dummy_input)
-    print(output.shape)  # Expected output shape: (1, 128, 32, 32)
-
 
 class LKStar(nn.Module):
     """LKStar Module: Large-Kernel Convolution dengan Star-Structure."""
