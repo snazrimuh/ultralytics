@@ -18,7 +18,7 @@ __all__ = (
     "C2f_EMA",
     "EMA", 
     "SPDConv",
-    "SPDConv",
+    "SPDLayer",
     "DFL",
     "HGBlock",
     "HGStem",
@@ -347,7 +347,7 @@ class SPDLayer(nn.Module):
     
     def forward(self, x):
         batch_size, channels, height, width = x.size()
-        assert height % self.scale == 0 and width % self.scale == 0
+        assert height % self.scale == 0 and width % self.scale == 0, "Height and width must be divisible by scale"
         
         new_height, new_width = height // self.scale, width // self.scale
         new_channels = channels * (self.scale ** 2)
@@ -375,8 +375,6 @@ class SPDConv(nn.Module):
         x = self.bn(x)   # Batch normalization
         x = self.activation(x)  # Activation function (SiLU)
         return x
-
-
 
 class DFL(nn.Module):
     """
