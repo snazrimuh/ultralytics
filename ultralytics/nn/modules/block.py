@@ -347,7 +347,7 @@ class SPDLayer(nn.Module):
     
     def forward(self, x):
         batch_size, channels, height, width = x.size()
-        assert height % self.scale == 0 and width % self.scale == 0, "Height and width must be divisible by scale"
+        assert height % self.scale == 0 and width % self.scale == 0
         
         new_height, new_width = height // self.scale, width // self.scale
         new_channels = channels * (self.scale ** 2)
