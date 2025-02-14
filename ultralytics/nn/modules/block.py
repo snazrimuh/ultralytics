@@ -11,6 +11,9 @@ from .conv import Conv, DWConv, GhostConv, LightConv, RepConv, autopad
 from .transformer import TransformerBlock
 
 __all__ = (
+    "DCNv2",
+    "BottleneckDCN",
+    "C2f_DCNv2"
     "RFAConv"
     "LKStar",
     "SimSPPF",
@@ -60,22 +63,57 @@ __all__ = (
     "TorchVision",
 )
 
+from torchvision.ops import DeformConv2d
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+class DCNv2(nn.Module):
+    """Deformable Convolution v2 (DCNv2) Layer"""
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, deform_groups=1):
+        super().__init__()
+        self.offset_conv = nn.Conv2d(in_channels, 2 * kernel_size * kernel_size, kernel_size=kernel_size, stride=stride, padding=padding, bias=True)
+        self.mask_conv = nn.Conv2d(in_channels, kernel_size * kernel_size, kernel_size=kernel_size, stride=stride, padding=padding, bias=True)
+        self.deform_conv = DeformConv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False, groups=deform_groups)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.act = nn.SiLU()
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+    def forward(self, x):
+        offset = self.offset_conv(x)
+        mask = torch.sigmoid(self.mask_conv(x))
+        out = self.deform_conv(x, offset, mask)
+        return self.act(self.bn(out))
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+class BottleneckDCN(nn.Module):
+    """Bottleneck block with Deformable Convolution (DCNv2)"""
+    def __init__(self, in_channels, out_channels, expansion=0.5):
+        super().__init__()
+        hidden_dim = int(out_channels * expansion)
+        self.conv1 = nn.Conv2d(in_channels, hidden_dim, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(hidden_dim)
+        self.conv2 = DCNv2(hidden_dim, out_channels, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.act = nn.SiLU()
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+    def forward(self, x):
+        out = self.act(self.bn1(self.conv1(x)))
+        out = self.act(self.bn2(self.conv2(out)))
+        return out
+
+class C2f_DCNv2(nn.Module):
+    """Custom C2f Module with Deformable Convolution v2 (DCNv2)"""
+    def __init__(self, in_channels, out_channels, num_blocks=2):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels // 2)
+        self.blocks = nn.Sequential(*[BottleneckDCN(out_channels // 2, out_channels // 2) for _ in range(num_blocks)])
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.act = nn.SiLU()
+
+    def forward(self, x):
+        x1 = self.act(self.bn1(self.conv1(x)))
+        x2 = self.blocks(x1)
+        x_out = torch.cat([x1, x2], dim=1)
+        return self.act(self.bn2(self.conv2(x_out)))
+
 
 class RFAConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=16):

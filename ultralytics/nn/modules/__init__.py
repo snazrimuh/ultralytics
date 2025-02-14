@@ -18,6 +18,7 @@ Example:
 """
 
 from .block import (
+    C2f_DCNv2,
     RFAConv,
     LKStar,
     SimSPPF,
@@ -96,6 +97,7 @@ from .transformer import (
 )
 
 __all__ = (
+    "C2f_DCNv2"
     "RFAConv",
     "LKStar",
     "SimSPPF",
