@@ -18,6 +18,7 @@ __all__ = (
     "C2f_EMA",
     "EMA", 
     "SPDConv",
+    "SPDConv",
     "DFL",
     "HGBlock",
     "HGStem",
@@ -336,28 +337,43 @@ class SPPCSPC(nn.Module):
         out = self.act3(self.bn3(self.conv3(x3)))  # Konvolusi akhir
         return out
 
-# SPD-Conv Module (Pengganti Downsampling)
-class SPDConv(nn.Module):
-    """Spatial-to-Depth Convolution (SPD-Conv) module to replace strided convolution for better feature retention."""
-
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=2, padding=1):
-        """
-        Initializes SPD-Conv:
-        - Uses a spatial-to-depth transformation instead of strided convolution.
-        - Preserves small object details while performing downsampling.
-        """
-        super(SPDConv, self).__init__()
-        self.s2d = nn.PixelUnshuffle(stride)  # Spatial-to-Depth transformation
-        self.conv = nn.Conv2d(in_channels * (stride ** 2), out_channels, kernel_size, stride=1, padding=padding, bias=False)
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.act = nn.SiLU()  # Activation function
-
+class SPDLayer(nn.Module):
+    """
+    Spatial-to-Depth (SPD) layer that rearranges spatial information into depth (channel) dimension.
+    """
+    def __init__(self, scale=2):
+        super(SPDLayer, self).__init__()
+        self.scale = scale
+    
     def forward(self, x):
-        """Forward pass through SPD-Conv module."""
-        x = self.s2d(x)  # Spatial-to-Depth conversion (reduces spatial size, increases channels)
-        x = self.conv(x)  # Standard convolution
-        x = self.bn(x)  # Batch normalization
-        x = self.act(x)  # Activation function
+        batch_size, channels, height, width = x.size()
+        assert height % self.scale == 0 and width % self.scale == 0, "Height and width must be divisible by scale"
+        
+        new_height, new_width = height // self.scale, width // self.scale
+        new_channels = channels * (self.scale ** 2)
+        
+        x = x.view(batch_size, channels, new_height, self.scale, new_width, self.scale)
+        x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
+        x = x.view(batch_size, new_channels, new_height, new_width)
+        
+        return x
+
+class SPDConv(nn.Module):
+    """
+    SPD-Conv module: Combines SPD layer with a non-stride convolutional layer.
+    """
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+        super(SPDConv, self).__init__()
+        self.spd = SPDLayer(scale=2)  # SPD layer with scale=2
+        self.conv = nn.Conv2d(in_channels * 4, out_channels, kernel_size=kernel_size, padding=padding, stride=1, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.activation = nn.SiLU()
+    
+    def forward(self, x):
+        x = self.spd(x)  # Rearrange spatial to depth
+        x = self.conv(x) # Apply convolution without stride
+        x = self.bn(x)   # Batch normalization
+        x = self.activation(x)  # Activation function (SiLU)
         return x
 
 
