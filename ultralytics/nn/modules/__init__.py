@@ -19,7 +19,6 @@ Example:
 
 from .block import (
     C2f_DCNv2,
-    RFAConv,
     LKStar,
     SimSPPF,
     SPPCSPC, 
@@ -97,8 +96,7 @@ from .transformer import (
 )
 
 __all__ = (
-    "C2f_DCNv2"
-    "RFAConv",
+    "C2f_DCNv2",
     "LKStar",
     "SimSPPF",
     "SPPCSPC", 

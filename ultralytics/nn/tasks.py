@@ -12,7 +12,6 @@ import torch
 
 from ultralytics.nn.modules import (
     C2f_DCNv2,
-    RFAConv,
     LKStar,
     SimSPPF,
     SPPCSPC, 
@@ -958,7 +957,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
     base_modules = frozenset(
         {
             C2f_DCNv2,
-            RFAConv,
             LKStar,
             SimSPPF,
             SPPCSPC, 
