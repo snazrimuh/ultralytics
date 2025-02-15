@@ -239,40 +239,35 @@ class LKStar(nn.Module):
         return out
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
-import torch
-import torch.nn as nn
-
 class SimSPPF(nn.Module):
     """
-    SimSPPF yang telah diperbaiki agar kompatibel dengan C2f_DCNv2:
-    - Menggunakan SiLU alih-alih ReLU
-    - Menggunakan AdaptiveAvgPool2d agar fitur tetap stabil
-    - Menambahkan LayerNorm sebelum convolusi kedua
+    - Ganti LayerNorm dengan InstanceNorm2d agar kompatibel dengan ukuran input CNN.
+    - AdaptiveAvgPool2d tetap digunakan untuk menjaga kestabilan fitur.
+    - SiLU digunakan sebagai fungsi aktivasi agar lebih stabil dalam training.
     """
     def __init__(self, in_channels, out_channels, kernel_size=5):
         super(SimSPPF, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.act1 = nn.SiLU()  # Ganti ReLU dengan SiLU agar lebih stabil
+        self.act1 = nn.SiLU()
 
-        self.pool = nn.AdaptiveAvgPool2d((None, None))  # Ganti MaxPool2d dengan AdaptiveAvgPool2d
+        self.pool = nn.AdaptiveAvgPool2d((None, None))  # Adaptive pooling untuk menjaga fitur tetap konsisten
 
-        self.ln = nn.LayerNorm([out_channels * 4, 1, 1])  # LayerNorm agar lebih stabil
-        
+        self.norm = nn.InstanceNorm2d(out_channels * 4)  # Ganti LayerNorm dengan InstanceNorm2d
+
         self.conv2 = nn.Conv2d(out_channels * 4, out_channels, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        self.act2 = nn.SiLU()  # Ganti ReLU dengan SiLU agar lebih stabil
+        self.act2 = nn.SiLU()
 
     def forward(self, x):
-        x = self.act1(self.bn1(self.conv1(x)))  # Konvolusi awal
+        x = self.act1(self.bn1(self.conv1(x)))  # Convolusi awal
         p1 = self.pool(x)
         p2 = self.pool(p1)
         p3 = self.pool(p2)
-        
-        x = torch.cat((x, p1, p2, p3), dim=1)  # Gabungkan semua fitur
-        x = self.ln(x)  # Normalisasi sebelum convolusi kedua
-        return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
 
+        x = torch.cat((x, p1, p2, p3), dim=1)  # Gabungkan semua fitur
+        x = self.norm(x)  # Gunakan InstanceNorm2d agar kompatibel dengan ukuran [batch, channels, H, W]
+        return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
 
 
 class C2f_EMA(nn.Module):
