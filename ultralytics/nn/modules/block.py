@@ -241,9 +241,9 @@ class LKStar(nn.Module):
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
     """
-    - Ganti LayerNorm dengan InstanceNorm2d agar kompatibel dengan ukuran input CNN.
-    - AdaptiveAvgPool2d tetap digunakan untuk menjaga kestabilan fitur.
-    - SiLU digunakan sebagai fungsi aktivasi agar lebih stabil dalam training.
+    - Memastikan ukuran tensor tetap konsisten sebelum concatenation.
+    - Menggunakan AdaptiveAvgPool2d untuk menjaga stabilitas.
+    - InstanceNorm2d menggantikan LayerNorm agar kompatibel dengan ukuran [batch, channels, H, W].
     """
     def __init__(self, in_channels, out_channels, kernel_size=5):
         super(SimSPPF, self).__init__()
@@ -251,7 +251,7 @@ class SimSPPF(nn.Module):
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.act1 = nn.SiLU()
 
-        self.pool = nn.AdaptiveAvgPool2d((None, None))  # Adaptive pooling untuk menjaga fitur tetap konsisten
+        self.pool = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size//2)
 
         self.norm = nn.InstanceNorm2d(out_channels * 4)  # Ganti LayerNorm dengan InstanceNorm2d
 
@@ -261,11 +261,18 @@ class SimSPPF(nn.Module):
 
     def forward(self, x):
         x = self.act1(self.bn1(self.conv1(x)))  # Convolusi awal
+
+        # Pastikan semua tensor memiliki ukuran yang sesuai sebelum concatenation
         p1 = self.pool(x)
         p2 = self.pool(p1)
         p3 = self.pool(p2)
 
-        x = torch.cat((x, p1, p2, p3), dim=1)  # Gabungkan semua fitur
+        # Periksa ukuran tensor
+        if x.shape != p1.shape or x.shape != p2.shape or x.shape != p3.shape:
+            print(f"Size mismatch: x={x.shape}, p1={p1.shape}, p2={p2.shape}, p3={p3.shape}")
+
+        # Gabungkan semua fitur
+        x = torch.cat((x, p1, p2, p3), dim=1)  
         x = self.norm(x)  # Gunakan InstanceNorm2d agar kompatibel dengan ukuran [batch, channels, H, W]
         return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
 
