@@ -239,22 +239,40 @@ class LKStar(nn.Module):
         return out
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
+import torch
+import torch.nn as nn
+
 class SimSPPF(nn.Module):
+    """
+    SimSPPF yang telah diperbaiki agar kompatibel dengan C2f_DCNv2:
+    - Menggunakan SiLU alih-alih ReLU
+    - Menggunakan AdaptiveAvgPool2d agar fitur tetap stabil
+    - Menambahkan LayerNorm sebelum convolusi kedua
+    """
     def __init__(self, in_channels, out_channels, kernel_size=5):
         super(SimSPPF, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.act1 = nn.ReLU(inplace=True)
-        self.pool = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size//2)
+        self.act1 = nn.SiLU()  # Ganti ReLU dengan SiLU agar lebih stabil
+
+        self.pool = nn.AdaptiveAvgPool2d((None, None))  # Ganti MaxPool2d dengan AdaptiveAvgPool2d
+
+        self.ln = nn.LayerNorm([out_channels * 4, 1, 1])  # LayerNorm agar lebih stabil
+        
         self.conv2 = nn.Conv2d(out_channels * 4, out_channels, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        self.act2 = nn.ReLU(inplace=True)
-        
+        self.act2 = nn.SiLU()  # Ganti ReLU dengan SiLU agar lebih stabil
+
     def forward(self, x):
-        x = self.act1(self.bn1(self.conv1(x)))
-        pooled = self.pool(x)
-        concat = torch.cat([x, pooled, self.pool(pooled), self.pool(self.pool(pooled))], dim=1)
-        return self.act2(self.bn2(self.conv2(concat)))
+        x = self.act1(self.bn1(self.conv1(x)))  # Konvolusi awal
+        p1 = self.pool(x)
+        p2 = self.pool(p1)
+        p3 = self.pool(p2)
+        
+        x = torch.cat((x, p1, p2, p3), dim=1)  # Gabungkan semua fitur
+        x = self.ln(x)  # Normalisasi sebelum convolusi kedua
+        return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
+
 
 
 class C2f_EMA(nn.Module):
