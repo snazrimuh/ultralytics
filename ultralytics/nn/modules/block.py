@@ -11,9 +11,8 @@ from .conv import Conv, DWConv, GhostConv, LightConv, RepConv, autopad
 from .transformer import TransformerBlock
 
 __all__ = (
-    "C2f_DCNv2",
-    "DCNv2",
-    "D_Bottleneck"
+    "DCNv2Bottleneck",
+    "C2f_DCNv2"
     "LKStar",
     "SimSPPF",
     "SPPCSPC", 
@@ -61,56 +60,57 @@ __all__ = (
     "SCDown",
     "TorchVision",
 )
-from torchvision.ops import DeformConv2d
 
-class DCNv2(nn.Module):
-    """Deformable Convolutional Network v2 (DCNv2) layer."""
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, deform_groups=1):
-        super(DCNv2, self).__init__()
-        self.offset = nn.Conv2d(in_channels, 2 * kernel_size * kernel_size, kernel_size=kernel_size, 
-                                stride=stride, padding=padding, bias=True)
-        self.modulator = nn.Conv2d(in_channels, kernel_size * kernel_size, kernel_size=kernel_size, 
-                                   stride=stride, padding=padding, bias=True)
-        self.dcn = DeformConv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, 
-                                padding=padding, bias=False, groups=deform_groups)
+from torchvision.ops import DeformConv2d  # Menggunakan deformable convolution dari torchvision
 
-    def forward(self, x):
-        offset = self.offset(x)
-        modulator = torch.sigmoid(self.modulator(x))
-        return self.dcn(x, offset) * modulator
-
-
-class D_Bottleneck(nn.Module):
-    """Deformable Bottleneck Layer using DCNv2."""
-    def __init__(self, in_channels, out_channels):
-        super(D_Bottleneck, self).__init__()
-        mid_channels = out_channels // 2
-        self.conv1 = DCNv2(in_channels, mid_channels, kernel_size=3, padding=1)
-        self.conv2 = DCNv2(mid_channels, out_channels, kernel_size=3, padding=1)
-        self.shortcut = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+class DCNv2Bottleneck(nn.Module):
+    """
+    Bottleneck module menggunakan Deformable Convolution v2 (DCNv2)
+    yang tersedia di torchvision.
+    """
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
+        super(DCNv2Bottleneck, self).__init__()
+        self.offset_conv = nn.Conv2d(in_channels, 2 * kernel_size * kernel_size, kernel_size=kernel_size, 
+                                     stride=stride, padding=padding, bias=False)
+        self.dconv = DeformConv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.act = nn.SiLU()
 
     def forward(self, x):
-        out = self.conv1(x)
-        out = self.conv2(out)
-        return out + self.shortcut(x)  # Residual connection
-
+        offset = self.offset_conv(x)  # Menghitung offset untuk deformable convolution
+        return self.act(self.bn(self.dconv(x, offset)))
 
 class C2f_DCNv2(nn.Module):
-    """C2f_DCNv2 Module as per the provided architecture."""
-    def __init__(self, in_channels, out_channels, num_blocks):
+    """
+    Modul C2f yang telah dimodifikasi untuk menggunakan DCNv2
+    agar lebih baik dalam menangani variasi bentuk objek.
+    """
+    def __init__(self, in_channels, out_channels, num_bottlenecks=2):
         super(C2f_DCNv2, self).__init__()
         mid_channels = out_channels // 2
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
-        self.split = nn.Conv2d(out_channels, mid_channels, kernel_size=1, bias=False)
-        self.bottlenecks = nn.Sequential(*[D_Bottleneck(mid_channels, mid_channels) for _ in range(num_blocks)])
-        self.concat = nn.Conv2d((num_blocks + 2) * mid_channels, out_channels, kernel_size=1, bias=False)
+        
+        # Convolusi awal untuk menyesuaikan ukuran channel
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.act1 = nn.SiLU()
+        
+        # Bottleneck menggunakan DCNv2
+        self.bottlenecks = nn.Sequential(
+            *[DCNv2Bottleneck(mid_channels, mid_channels) for _ in range(num_bottlenecks)]
+        )
+        
+        # Convolusi akhir setelah DCNv2
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.act2 = nn.SiLU()
 
     def forward(self, x):
-        x = self.conv(x)
-        x1, x2 = torch.chunk(x, 2, dim=1)  # Splitting the channels
-        out = [x1] + [self.bottlenecks(x1) for _ in range(len(self.bottlenecks))] + [x2]
-        out = torch.cat(out, dim=1)
-        return self.concat(out)
+        x = self.act1(self.bn1(self.conv1(x)))  # Konvolusi awal
+        x1, x2 = torch.chunk(x, 2, dim=1)  # Split menjadi dua bagian
+        x2 = self.bottlenecks(x2)  # Proses dengan DCNv2 Bottleneck
+        x = torch.cat((x1, x2), dim=1)  # Menggabungkan kembali hasilnya
+        return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
+
 
 
 class LKStar(nn.Module):
