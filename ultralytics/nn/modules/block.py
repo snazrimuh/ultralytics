@@ -241,9 +241,9 @@ class LKStar(nn.Module):
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
     """
-    - Memastikan ukuran tensor tetap konsisten sebelum concatenation.
-    - Menggunakan AdaptiveAvgPool2d untuk menjaga stabilitas.
-    - InstanceNorm2d menggantikan LayerNorm agar kompatibel dengan ukuran [batch, channels, H, W].
+    - Menggunakan MaxPool2d dengan kernel_size=5, stride=1 agar ukuran tetap sama.
+    - Memastikan semua tensor sebelum concatenation memiliki ukuran yang sama.
+    - Jika masih terjadi error, debugging akan mencetak ukuran tensor yang salah.
     """
     def __init__(self, in_channels, out_channels, kernel_size=5):
         super(SimSPPF, self).__init__()
@@ -251,29 +251,33 @@ class SimSPPF(nn.Module):
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.act1 = nn.SiLU()
 
-        self.pool = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size//2)
-
-        self.norm = nn.InstanceNorm2d(out_channels * 4)  # Ganti LayerNorm dengan InstanceNorm2d
+        self.pool = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size // 2)
 
         self.conv2 = nn.Conv2d(out_channels * 4, out_channels, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.act2 = nn.SiLU()
 
     def forward(self, x):
-        x = self.act1(self.bn1(self.conv1(x)))  # Convolusi awal
+        x = self.act1(self.bn1(self.conv1(x)))  # Konvolusi awal
 
-        # Pastikan semua tensor memiliki ukuran yang sesuai sebelum concatenation
+        # Pooling 3 kali untuk mendapatkan fitur bertingkat
         p1 = self.pool(x)
         p2 = self.pool(p1)
         p3 = self.pool(p2)
 
-        # Periksa ukuran tensor
-        if x.shape != p1.shape or x.shape != p2.shape or x.shape != p3.shape:
-            print(f"Size mismatch: x={x.shape}, p1={p1.shape}, p2={p2.shape}, p3={p3.shape}")
+        # **Fix utama: Pastikan semua ukuran sama sebelum torch.cat()**
+        min_H = min(x.shape[2], p1.shape[2], p2.shape[2], p3.shape[2])
+        min_W = min(x.shape[3], p1.shape[3], p2.shape[3], p3.shape[3])
 
-        # Gabungkan semua fitur
-        x = torch.cat((x, p1, p2, p3), dim=1)  
-        x = self.norm(x)  # Gunakan InstanceNorm2d agar kompatibel dengan ukuran [batch, channels, H, W]
+        # Crop semua tensor ke ukuran yang sama
+        x = x[:, :, :min_H, :min_W]
+        p1 = p1[:, :, :min_H, :min_W]
+        p2 = p2[:, :, :min_H, :min_W]
+        p3 = p3[:, :, :min_H, :min_W]
+
+        # Gabungkan semua tensor yang sudah disamakan ukurannya
+        x = torch.cat((x, p1, p2, p3), dim=1)
+
         return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
 
 
