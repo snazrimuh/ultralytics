@@ -95,13 +95,15 @@ class D_Bottleneck(nn.Module):
 
 class C2f_DCNv2(nn.Module):
     """ C2f_DCNv2 Module (menggantikan C2f standar) """
-    def __init__(self, in_channels, out_channels, num_blocks=2):
+    def __init__(self, in_channels, out_channels, num_blocks=2, shortcut=True):
         super(C2f_DCNv2, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self.split = out_channels // 2
+        self.shortcut = shortcut
+
         self.blocks = nn.ModuleList([D_Bottleneck(self.split) for _ in range(num_blocks)])
         
-        # PERBAIKAN: Hitung jumlah channel sebelum convolution terakhir
+        # **PERBAIKAN:** Pastikan jumlah channel sebelum convolusi akhir benar
         concat_channels = (num_blocks + 2) * self.split  # Sesuai dengan jumlah blok
         self.concat_conv = nn.Conv2d(concat_channels, out_channels, kernel_size=1, bias=False)
 
@@ -116,8 +118,8 @@ class C2f_DCNv2(nn.Module):
             x_res = block(x_res)
             outputs.append(x_res)  # Simpan setiap hasil dari blok Bottleneck
         
-        return self.concat_conv(torch.cat(outputs, dim=1))  # PERBAIKAN: Pastikan jumlah channel benar
-
+        x_out = self.concat_conv(torch.cat(outputs, dim=1))  # **PERBAIKAN:** Sesuaikan jumlah channel
+        return x_out + x if self.shortcut else x_out  # Gunakan shortcut jika diperlukan
 
 class LKStar(nn.Module):
     """LKStar Module: Large-Kernel Convolution dengan Star-Structure."""
