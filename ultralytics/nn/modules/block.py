@@ -64,11 +64,8 @@ __all__ = (
 
 from torchvision.ops import DeformConv2d  # Menggunakan deformable convolution dari torchvision
 
+
 class DCNv2Bottleneck(nn.Module):
-    """
-    Bottleneck module menggunakan Deformable Convolution v2 (DCNv2)
-    yang tersedia di torchvision.
-    """
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
         super(DCNv2Bottleneck, self).__init__()
         self.offset_conv = nn.Conv2d(in_channels, 2 * kernel_size * kernel_size, kernel_size=kernel_size, 
@@ -78,40 +75,31 @@ class DCNv2Bottleneck(nn.Module):
         self.act = nn.SiLU()
 
     def forward(self, x):
-        offset = self.offset_conv(x)  # Menghitung offset untuk deformable convolution
+        offset = self.offset_conv(x) * 0.1  # Kurangi offset agar tidak terlalu besar
         return self.act(self.bn(self.dconv(x, offset)))
 
 class C2f_DCNv2(nn.Module):
-    """
-    Modul C2f yang telah dimodifikasi untuk menggunakan DCNv2
-    agar lebih baik dalam menangani variasi bentuk objek.
-    """
-    def __init__(self, in_channels, out_channels, num_bottlenecks=2):
+    def __init__(self, in_channels, out_channels, num_bottlenecks=1):  # Kurangi bottleneck agar lebih stabil
         super(C2f_DCNv2, self).__init__()
         mid_channels = out_channels // 2
-        
-        # Convolusi awal untuk menyesuaikan ukuran channel
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.act1 = nn.SiLU()
-        
-        # Bottleneck menggunakan DCNv2
+
         self.bottlenecks = nn.Sequential(
             *[DCNv2Bottleneck(mid_channels, mid_channels) for _ in range(num_bottlenecks)]
         )
-        
-        # Convolusi akhir setelah DCNv2
+
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.act2 = nn.SiLU()
 
     def forward(self, x):
-        x = self.act1(self.bn1(self.conv1(x)))  # Konvolusi awal
-        x1, x2 = torch.chunk(x, 2, dim=1)  # Split menjadi dua bagian
-        x2 = self.bottlenecks(x2)  # Proses dengan DCNv2 Bottleneck
-        x = torch.cat((x1, x2), dim=1)  # Menggabungkan kembali hasilnya
-        return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
-
+        x = self.act1(self.bn1(self.conv1(x)))
+        x1, x2 = torch.chunk(x, 2, dim=1)
+        x2 = self.bottlenecks(x2)
+        x = torch.cat((x1, x2), dim=1)
+        return self.act2(self.bn2(self.conv2(x)))
 
 class RFAConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=16):
@@ -240,45 +228,21 @@ class LKStar(nn.Module):
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
-    """
-    - Menggunakan MaxPool2d dengan kernel_size=5, stride=1 agar ukuran tetap sama.
-    - Memastikan semua tensor sebelum concatenation memiliki ukuran yang sama.
-    - Jika masih terjadi error, debugging akan mencetak ukuran tensor yang salah.
-    """
     def __init__(self, in_channels, out_channels, kernel_size=5):
         super(SimSPPF, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.act1 = nn.SiLU()
-
-        self.pool = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size // 2)
-
+        self.act1 = nn.ReLU(inplace=True)
+        self.pool = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size//2)
         self.conv2 = nn.Conv2d(out_channels * 4, out_channels, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        self.act2 = nn.SiLU()
-
+        self.act2 = nn.ReLU(inplace=True)
+        
     def forward(self, x):
-        x = self.act1(self.bn1(self.conv1(x)))  # Konvolusi awal
-
-        # Pooling 3 kali untuk mendapatkan fitur bertingkat
-        p1 = self.pool(x)
-        p2 = self.pool(p1)
-        p3 = self.pool(p2)
-
-        # **Fix utama: Pastikan semua ukuran sama sebelum torch.cat()**
-        min_H = min(x.shape[2], p1.shape[2], p2.shape[2], p3.shape[2])
-        min_W = min(x.shape[3], p1.shape[3], p2.shape[3], p3.shape[3])
-
-        # Crop semua tensor ke ukuran yang sama
-        x = x[:, :, :min_H, :min_W]
-        p1 = p1[:, :, :min_H, :min_W]
-        p2 = p2[:, :, :min_H, :min_W]
-        p3 = p3[:, :, :min_H, :min_W]
-
-        # Gabungkan semua tensor yang sudah disamakan ukurannya
-        x = torch.cat((x, p1, p2, p3), dim=1)
-
-        return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
+        x = self.act1(self.bn1(self.conv1(x)))
+        pooled = self.pool(x)
+        concat = torch.cat([x, pooled, self.pool(pooled), self.pool(self.pool(pooled))], dim=1)
+        return self.act2(self.bn2(self.conv2(concat)))
 
 
 class C2f_EMA(nn.Module):
