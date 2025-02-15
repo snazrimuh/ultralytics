@@ -12,8 +12,8 @@ from .transformer import TransformerBlock
 
 __all__ = (
     "C2f_DCNv2",
-    "DCNv2Bottleneck",
-    "RFAConv"
+    "DCNv2",
+    "D_Bottleneck"
     "LKStar",
     "SimSPPF",
     "SPPCSPC", 
@@ -61,81 +61,56 @@ __all__ = (
     "SCDown",
     "TorchVision",
 )
-from torchvision.ops import DeformConv2d  # Menggunakan deformable convolution dari torchvision
+from torchvision.ops import DeformConv2d
 
-class DCNv2Bottleneck(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
-        super(DCNv2Bottleneck, self).__init__()
-        self.offset_conv = nn.Conv2d(in_channels, 2 * kernel_size * kernel_size, kernel_size=kernel_size, 
-                                     stride=stride, padding=padding, bias=False)
-        self.dconv = DeformConv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False)
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.act = nn.SiLU()
+class DCNv2(nn.Module):
+    """Deformable Convolutional Network v2 (DCNv2) layer."""
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, deform_groups=1):
+        super(DCNv2, self).__init__()
+        self.offset = nn.Conv2d(in_channels, 2 * kernel_size * kernel_size, kernel_size=kernel_size, 
+                                stride=stride, padding=padding, bias=True)
+        self.modulator = nn.Conv2d(in_channels, kernel_size * kernel_size, kernel_size=kernel_size, 
+                                   stride=stride, padding=padding, bias=True)
+        self.dcn = DeformConv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, 
+                                padding=padding, bias=False, groups=deform_groups)
 
     def forward(self, x):
-        offset = self.offset_conv(x) * 0.1  # Kurangi offset agar tidak terlalu besar
-        return self.act(self.bn(self.dconv(x, offset)))
+        offset = self.offset(x)
+        modulator = torch.sigmoid(self.modulator(x))
+        return self.dcn(x, offset) * modulator
+
+
+class D_Bottleneck(nn.Module):
+    """Deformable Bottleneck Layer using DCNv2."""
+    def __init__(self, in_channels, out_channels):
+        super(D_Bottleneck, self).__init__()
+        mid_channels = out_channels // 2
+        self.conv1 = DCNv2(in_channels, mid_channels, kernel_size=3, padding=1)
+        self.conv2 = DCNv2(mid_channels, out_channels, kernel_size=3, padding=1)
+        self.shortcut = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.conv2(out)
+        return out + self.shortcut(x)  # Residual connection
+
 
 class C2f_DCNv2(nn.Module):
-    def __init__(self, in_channels, out_channels, num_bottlenecks=1):  # Kurangi bottleneck agar lebih stabil
+    """C2f_DCNv2 Module as per the provided architecture."""
+    def __init__(self, in_channels, out_channels, num_blocks):
         super(C2f_DCNv2, self).__init__()
         mid_channels = out_channels // 2
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.act1 = nn.SiLU()
-
-        self.bottlenecks = nn.Sequential(
-            *[DCNv2Bottleneck(mid_channels, mid_channels) for _ in range(num_bottlenecks)]
-        )
-
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-        self.act2 = nn.SiLU()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+        self.split = nn.Conv2d(out_channels, mid_channels, kernel_size=1, bias=False)
+        self.bottlenecks = nn.Sequential(*[D_Bottleneck(mid_channels, mid_channels) for _ in range(num_blocks)])
+        self.concat = nn.Conv2d((num_blocks + 2) * mid_channels, out_channels, kernel_size=1, bias=False)
 
     def forward(self, x):
-        x = self.act1(self.bn1(self.conv1(x)))
-        x1, x2 = torch.chunk(x, 2, dim=1)
-        x2 = self.bottlenecks(x2)
-        x = torch.cat((x1, x2), dim=1)
-        return self.act2(self.bn2(self.conv2(x)))
-
-class RFAConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=16):
-        super(RFAConv, self).__init__()
-
-        # Convolution layers with different kernel sizes (same out_channels)
-        self.convs = nn.ModuleList([
-            nn.Conv2d(in_channels, out_channels, kernel_size=k, stride=1, padding=k//2, bias=False)
-            for k in kernel_sizes
-        ])
-
-        # Attention mechanism layers
-        reduced_channels = max(in_channels // reduction, 1)  # Jangan sampai 0
-        self.fc1 = nn.Conv2d(in_channels, reduced_channels, kernel_size=1, bias=False)
-        self.fc2 = nn.Conv2d(reduced_channels, len(kernel_sizes), kernel_size=1, bias=False)
-
-        # Output layer to ensure channel consistency
-        self.output_conv = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
-
-    def forward(self, x):
-        # Multiple convolutions (ensure out_channels is the same for all)
-        features = [conv(x) for conv in self.convs]  # List of (B, out_channels, H, W)
-        
-        # Stack along a new dimension
-        features = torch.stack(features, dim=1)  # (B, K, C, H, W)
-
-        # Attention mechanism
-        attention = F.adaptive_avg_pool2d(x, 1)  # (B, in_channels, 1, 1)
-        attention = self.fc1(attention)
-        attention = F.relu(attention, inplace=True)
-        attention = self.fc2(attention)
-        attention = F.softmax(attention, dim=1)  # (B, K, 1, 1)
-
-        # Feature fusion
-        fused = torch.sum(features * attention.unsqueeze(2), dim=1)  
-
-        # Final output projection
-        return self.output_conv(fused)
+        x = self.conv(x)
+        x1, x2 = torch.chunk(x, 2, dim=1)  # Splitting the channels
+        out = [x1] + [self.bottlenecks(x1) for _ in range(len(self.bottlenecks))] + [x2]
+        out = torch.cat(out, dim=1)
+        return self.concat(out)
 
 
 class LKStar(nn.Module):
@@ -226,34 +201,21 @@ class LKStar(nn.Module):
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
-    """
-    - Ganti LayerNorm dengan InstanceNorm2d agar kompatibel dengan ukuran input CNN.
-    - AdaptiveAvgPool2d tetap digunakan untuk menjaga kestabilan fitur.
-    - SiLU digunakan sebagai fungsi aktivasi agar lebih stabil dalam training.
-    """
     def __init__(self, in_channels, out_channels, kernel_size=5):
         super(SimSPPF, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.act1 = nn.SiLU()
-
-        self.pool = nn.AdaptiveAvgPool2d((None, None))  # Adaptive pooling untuk menjaga fitur tetap konsisten
-
-        self.norm = nn.InstanceNorm2d(out_channels * 4)  # Ganti LayerNorm dengan InstanceNorm2d
-
+        self.act1 = nn.ReLU(inplace=True)
+        self.pool = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size//2)
         self.conv2 = nn.Conv2d(out_channels * 4, out_channels, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        self.act2 = nn.SiLU()
-
+        self.act2 = nn.ReLU(inplace=True)
+        
     def forward(self, x):
-        x = self.act1(self.bn1(self.conv1(x)))  # Convolusi awal
-        p1 = self.pool(x)
-        p2 = self.pool(p1)
-        p3 = self.pool(p2)
-
-        x = torch.cat((x, p1, p2, p3), dim=1)  # Gabungkan semua fitur
-        x = self.norm(x)  # Gunakan InstanceNorm2d agar kompatibel dengan ukuran [batch, channels, H, W]
-        return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
+        x = self.act1(self.bn1(self.conv1(x)))
+        pooled = self.pool(x)
+        concat = torch.cat([x, pooled, self.pool(pooled), self.pool(self.pool(pooled))], dim=1)
+        return self.act2(self.bn2(self.conv2(concat)))
 
 
 class C2f_EMA(nn.Module):
