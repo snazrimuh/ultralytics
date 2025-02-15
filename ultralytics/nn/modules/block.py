@@ -84,11 +84,11 @@ class DCNv2(nn.Module):
 
 class D_Bottleneck(nn.Module):
     """ Bottleneck menggunakan DCNv2 """
-    def __init__(self, in_channels, out_channels, expansion=0.5):
+    def __init__(self, in_channels, expansion=0.5):
         super(D_Bottleneck, self).__init__()
-        hidden_dim = int(out_channels * expansion)
+        hidden_dim = int(in_channels * expansion)
         self.conv1 = DCNv2(in_channels, hidden_dim, kernel_size=3, stride=1, padding=1)
-        self.conv2 = DCNv2(hidden_dim, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2 = DCNv2(hidden_dim, in_channels, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
         return x + self.conv2(self.conv1(x))  # Skip connection
@@ -99,53 +99,24 @@ class C2f_DCNv2(nn.Module):
         super(C2f_DCNv2, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self.split = out_channels // 2
-        self.blocks = nn.ModuleList([D_Bottleneck(self.split, self.split) for _ in range(num_blocks)])
-        self.concat_conv = nn.Conv2d(out_channels + (num_blocks * self.split), out_channels, kernel_size=1, bias=False)
+        self.blocks = nn.ModuleList([D_Bottleneck(self.split) for _ in range(num_blocks)])
+        
+        # PERBAIKAN: Hitung jumlah channel sebelum convolution terakhir
+        concat_channels = (num_blocks + 2) * self.split  # Sesuai dengan jumlah blok
+        self.concat_conv = nn.Conv2d(concat_channels, out_channels, kernel_size=1, bias=False)
 
     def forward(self, x):
         x = self.conv1(x)
-        split_x = torch.split(x, self.split, dim=1)  # Membagi fitur
-        outputs = [split_x[0]] + [block(split_x[i]) for i, block in enumerate(self.blocks)]
-        return self.concat_conv(torch.cat(outputs, dim=1))  # Menggabungkan hasil
-
-
-class RFAConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_sizes=[3, 5, 7], reduction=16):
-        super(RFAConv, self).__init__()
-
-        # Convolution layers with different kernel sizes (same out_channels)
-        self.convs = nn.ModuleList([
-            nn.Conv2d(in_channels, out_channels, kernel_size=k, stride=1, padding=k//2, bias=False)
-            for k in kernel_sizes
-        ])
-
-        # Attention mechanism layers
-        reduced_channels = max(in_channels // reduction, 1)  # Jangan sampai 0
-        self.fc1 = nn.Conv2d(in_channels, reduced_channels, kernel_size=1, bias=False)
-        self.fc2 = nn.Conv2d(reduced_channels, len(kernel_sizes), kernel_size=1, bias=False)
-
-        # Output layer to ensure channel consistency
-        self.output_conv = nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
-
-    def forward(self, x):
-        # Multiple convolutions (ensure out_channels is the same for all)
-        features = [conv(x) for conv in self.convs]  # List of (B, out_channels, H, W)
+        split_x = torch.split(x, self.split, dim=1)  # Membagi fitur menjadi dua bagian
         
-        # Stack along a new dimension
-        features = torch.stack(features, dim=1)  # (B, K, C, H, W)
-
-        # Attention mechanism
-        attention = F.adaptive_avg_pool2d(x, 1)  # (B, in_channels, 1, 1)
-        attention = self.fc1(attention)
-        attention = F.relu(attention, inplace=True)
-        attention = self.fc2(attention)
-        attention = F.softmax(attention, dim=1)  # (B, K, 1, 1)
-
-        # Feature fusion
-        fused = torch.sum(features * attention.unsqueeze(2), dim=1)  
-
-        # Final output projection
-        return self.output_conv(fused)
+        outputs = [split_x[0]]  # Output awal
+        x_res = split_x[1]  # Bagian lain dikirim ke Bottleneck
+        
+        for block in self.blocks:
+            x_res = block(x_res)
+            outputs.append(x_res)  # Simpan setiap hasil dari blok Bottleneck
+        
+        return self.concat_conv(torch.cat(outputs, dim=1))  # PERBAIKAN: Pastikan jumlah channel benar
 
 
 class LKStar(nn.Module):
