@@ -349,11 +349,13 @@ class SPDLayer(nn.Module):
         new_height, new_width = height // self.scale, width // self.scale
         new_channels = channels * (self.scale ** 2)
         
-        x = x.view(batch_size, channels, new_height, self.scale, new_width, self.scale)
-        x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
+        # Tambahkan contiguous() sebelum view() untuk memastikan tensor tersusun dengan baik di memori
+        x = x.contiguous().view(batch_size, channels, new_height, self.scale, new_width, self.scale)
+        x = x.permute(0, 1, 3, 5, 2, 4).contiguous()  # Pastikan contiguous sebelum view lagi
         x = x.view(batch_size, new_channels, new_height, new_width)
         
         return x
+
 
 class SPDConv(nn.Module):
     """
