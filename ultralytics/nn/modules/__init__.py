@@ -103,6 +103,7 @@ __all__ = (
     "C2f_EMA",
     "EMA", 
     "SPDConv",
+    "RFAConv",
     "Conv",
     "Conv2",
     "LightConv",
