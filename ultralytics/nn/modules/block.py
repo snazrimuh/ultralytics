@@ -92,13 +92,7 @@ class RFAConv(nn.Module):
 
         self.act = nn.SiLU()  # Aktivasi SiLU
 
-        # Menyesuaikan dimensi input untuk filter yang mengharapkan 3 channel
-        self.conv_adjust = nn.Conv2d(in_channels, 3, kernel_size=1, stride=1, padding=0)
-
     def forward(self, x):
-        # Menyesuaikan jumlah channel input menjadi 3 jika diperlukan
-        x = self.conv_adjust(x)  # Pastikan x memiliki 3 channel
-
         # Ekstraksi fitur dengan 3 ukuran kernel
         out1 = self.act(self.bn1(self.conv1x1(x)))
         out3 = self.act(self.bn3(self.conv3x3(x)))
@@ -111,6 +105,7 @@ class RFAConv(nn.Module):
         out = attn[:, 0:1, :, :] * out1 + attn[:, 1:2, :, :] * out3 + attn[:, 2:3, :, :] * out5
 
         return out
+
 from torchvision.ops import DeformConv2d  # Menggunakan deformable convolution dari torchvision
 
 class DCNv2Bottleneck(nn.Module):
