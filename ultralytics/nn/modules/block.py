@@ -107,6 +107,10 @@ class RFAConv(nn.Module):
         # Terapkan bobot atensi ke masing-masing fitur
         out = attn[:, 0:1, :, :] * out1 + attn[:, 1:2, :, :] * out3 + attn[:, 2:3, :, :] * out5
 
+        
+        print(f"out1 shape: {out1.shape}")
+        print(f"out3 shape: {out3.shape}")
+        print(f"out5 shape: {out5.shape}")
         return out
 
 
