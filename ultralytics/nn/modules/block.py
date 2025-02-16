@@ -93,6 +93,9 @@ class RFAConv(nn.Module):
         self.act = nn.SiLU()  # Aktivasi SiLU
 
     def forward(self, x):
+        print(f"out1 shape: {out1.shape}")
+        print(f"out3 shape: {out3.shape}")
+        print(f"out5 shape: {out5.shape}")
         # Ekstraksi fitur dengan 3 ukuran kernel
         out1 = self.act(self.bn1(self.conv1x1(x)))
         out3 = self.act(self.bn3(self.conv3x3(x)))
