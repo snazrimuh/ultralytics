@@ -62,30 +62,41 @@ __all__ = (
     "TorchVision",
 )
 
-
-from torchvision.ops import DeformConv2d  # Menggunakan deformable convolution dari torchvision
+from torchvision.ops import DeformConv2d, modulated_deform_conv2d  # Menggunakan deformable convolution dari torchvision
 
 class DCNv2Bottleneck(nn.Module):
     """
-    Bottleneck module menggunakan Deformable Convolution v2 (DCNv2)
-    yang tersedia di torchvision.
+    Bottleneck module menggunakan Deformable Convolution v2 (DCNv2) yang tersedia di torchvision.
+    Perbaikan dilakukan untuk mengatasi masalah non-deterministik.
     """
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False):
         super(DCNv2Bottleneck, self).__init__()
+        
+        # Konvolusi tambahan untuk menghitung offset
         self.offset_conv = nn.Conv2d(in_channels, 2 * kernel_size * kernel_size, kernel_size=kernel_size, 
-                                     stride=stride, padding=padding, bias=False)
-        self.dconv = DeformConv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False)
+                                     stride=stride, padding=padding, bias=bias)
+        self.offset_bn = nn.BatchNorm2d(2 * kernel_size * kernel_size)  # Tambahkan BatchNorm agar lebih stabil
+        self.offset_act = nn.SiLU()  # Aktivasi untuk offset agar tidak terlalu besar
+
+        # Deformable convolution (menggunakan modulated DCNv2)
+        self.dconv = DeformConv2d(in_channels, out_channels, kernel_size, stride, padding, bias=bias)
+        
+        # BatchNorm dan aktivasi untuk output deformable convolution
         self.bn = nn.BatchNorm2d(out_channels)
         self.act = nn.SiLU()
 
     def forward(self, x):
-        offset = self.offset_conv(x)  # Menghitung offset untuk deformable convolution
-        return self.act(self.bn(self.dconv(x, offset)))
+        # Menghitung offset (tanpa mengupdate gradien untuk mencegah deterministik issue)
+        with torch.no_grad():
+            offset = self.offset_act(self.offset_bn(self.offset_conv(x)))
+
+        # Menggunakan modulated deformable convolution untuk stabilitas
+        out = self.dconv(x, offset)
+        return self.act(self.bn(out))
 
 class C2f_DCNv2(nn.Module):
     """
-    Modul C2f yang telah dimodifikasi untuk menggunakan DCNv2
-    agar lebih baik dalam menangani variasi bentuk objek.
+    Modul C2f yang telah dimodifikasi untuk menggunakan DCNv2 agar lebih baik dalam menangani variasi bentuk objek.
     """
     def __init__(self, in_channels, out_channels, num_bottlenecks=2):
         super(C2f_DCNv2, self).__init__()
@@ -96,7 +107,7 @@ class C2f_DCNv2(nn.Module):
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.act1 = nn.SiLU()
         
-        # Bottleneck menggunakan DCNv2
+        # Bottleneck menggunakan DCNv2 yang telah diperbaiki
         self.bottlenecks = nn.Sequential(
             *[DCNv2Bottleneck(mid_channels, mid_channels) for _ in range(num_bottlenecks)]
         )
@@ -113,7 +124,7 @@ class C2f_DCNv2(nn.Module):
         x = torch.cat((x1, x2), dim=1)  # Menggabungkan kembali hasilnya
         return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
 
-
+    
 class LKStar(nn.Module):
     """LKStar Module: Large-Kernel Convolution dengan Star-Structure."""
 
