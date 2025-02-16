@@ -18,6 +18,7 @@ Example:
 """
 
 from .block import (
+    RFAConv,
     C2f_DCNv2,
     LKStar,
     SimSPPF,
