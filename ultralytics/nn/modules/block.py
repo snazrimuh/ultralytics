@@ -98,6 +98,11 @@ class RFAConv(nn.Module):
         out3 = self.act(self.bn3(self.conv3x3(x)))
         out5 = self.act(self.bn5(self.conv5x5(x)))
 
+        # Pastikan jumlah channel yang konsisten pada semua output
+        # Agar ukuran channel sama, kita sesuaikan menggunakan conv1x1
+        out3 = self.conv3x3(out3)  # Menghasilkan output dengan jumlah channel sama
+        out5 = self.conv5x5(out5)  # Menghasilkan output dengan jumlah channel sama
+
         # Hitung bobot atensi dari fitur yang digabungkan
         attn = self.attention_fc(out1 + out3 + out5)  # Global pooling dari semua fitur
 
