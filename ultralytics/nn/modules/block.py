@@ -62,6 +62,50 @@ __all__ = (
     "TorchVision",
 )
 
+class RFAConv(nn.Module):
+    """
+    Receptive-Field Attention Convolution (RFAConv)
+    - Menggunakan multiple kernel sizes (1x1, 3x3, 5x5)
+    - Menggunakan softmax attention untuk memilih skala fitur yang relevan
+    """
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+        super(RFAConv, self).__init__()
+
+        # Konvolusi dengan tiga ukuran kernel (1x1, 3x3, 5x5)
+        self.conv1x1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv3x3 = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=1, padding=padding, bias=False)
+        self.conv5x5 = nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=1, padding=2, bias=False)
+
+        # Normalisasi Batch
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.bn3 = nn.BatchNorm2d(out_channels)
+        self.bn5 = nn.BatchNorm2d(out_channels)
+
+        # Mekanisme Atensi (Global Average Pooling + Fully Connected)
+        self.attention_fc = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),  # Global Average Pooling
+            nn.Conv2d(out_channels, out_channels // 16, kernel_size=1),  # FC Layer 1
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels // 16, 3, kernel_size=1),  # Output bobot untuk 1x1, 3x3, 5x5
+            nn.Softmax(dim=1)  # Softmax untuk normalisasi bobot
+        )
+
+        self.act = nn.SiLU()  # Aktivasi SiLU
+
+    def forward(self, x):
+        # Ekstraksi fitur dengan 3 ukuran kernel
+        out1 = self.act(self.bn1(self.conv1x1(x)))
+        out3 = self.act(self.bn3(self.conv3x3(x)))
+        out5 = self.act(self.bn5(self.conv5x5(x)))
+
+        # Hitung bobot atensi dari fitur yang digabungkan
+        attn = self.attention_fc(out1 + out3 + out5)  # Global pooling dari semua fitur
+
+        # Terapkan bobot atensi ke masing-masing fitur
+        out = attn[:, 0:1, :, :] * out1 + attn[:, 1:2, :, :] * out3 + attn[:, 2:3, :, :] * out5
+
+        return out
+
 from torchvision.ops import DeformConv2d  # Menggunakan deformable convolution dari torchvision
 
 class DCNv2Bottleneck(nn.Module):
