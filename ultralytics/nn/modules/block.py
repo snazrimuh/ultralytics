@@ -223,92 +223,47 @@ class C2f_DCNv2(nn.Module):
         x = torch.cat((x1, x2), dim=1)  # Menggabungkan kembali hasilnya
         return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
 
-    
-class LKStar(nn.Module):
-    """LKStar Module: Large-Kernel Convolution dengan Star-Structure."""
-
-    def __init__(self, in_channels, out_channels, kernel_size=13, shortcut=True, expansion=2):
-        """
-        Args:
-            in_channels: Jumlah channel input.
-            out_channels: Jumlah channel output.
-            kernel_size: Ukuran kernel depthwise convolution.
-            shortcut: Gunakan residual connection atau tidak.
-            expansion: Faktor ekspansi channel.
-        """
-        super(LKStar, self).__init__()
-
-        hidden_channels = out_channels // expansion  # Mengurangi ukuran channel sebelum pemrosesan
-
-        # Membagi fitur menjadi dua jalur
-        self.split_conv = nn.Conv2d(in_channels, hidden_channels, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(hidden_channels)
-        self.act1 = nn.SiLU()
-
-        # Jalur pertama: Depthwise Convolution dengan Large Kernel
-        self.large_kernel_conv = nn.Conv2d(hidden_channels, hidden_channels, 
-                                           kernel_size=kernel_size, stride=1, 
-                                           padding=kernel_size // 2, groups=hidden_channels, bias=False)
-        self.bn2 = nn.BatchNorm2d(hidden_channels)
-        self.act2 = nn.SiLU()
-
-        # Jalur kedua: Depthwise Convolution dengan Small Kernel (3x3)
-        self.small_kernel_conv = nn.Conv2d(hidden_channels, hidden_channels, 
-                                           kernel_size=3, stride=1, 
-                                           padding=1, groups=hidden_channels, bias=False)
-        self.bn3 = nn.BatchNorm2d(hidden_channels)
-        self.act3 = nn.SiLU()
-
-        # Elemen-wise Multiplication (Star Operation)
-        self.star_mult = nn.Conv2d(hidden_channels, hidden_channels, kernel_size=1, bias=False)
-
-        # Konvolusi Akhir untuk Menggabungkan Output
-        self.conv_final = nn.Conv2d(hidden_channels * 2, out_channels, kernel_size=1, bias=False)
-        self.bn_final = nn.BatchNorm2d(out_channels)
-        self.act_final = nn.SiLU()
-
-        self.shortcut = shortcut and in_channels == out_channels  # Residual connection
+class LKConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=13, stride=1, padding=None):
+        super(LKConv, self).__init__()
+        if padding is None:
+            padding = kernel_size // 2  # Auto-padding agar output tetap memiliki ukuran yang sama
+        
+        self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, groups=in_channels, bias=False)
+        self.pwconv = nn.Conv2d(in_channels, out_channels, 1, bias=False)  # 1x1 Pointwise convolution
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.act = nn.ReLU(inplace=True)  # Menggunakan ReLU untuk efisiensi komputasi
 
     def forward(self, x):
-        """Forward pass dari LKStar module."""
-        identity = x  # Simpan shortcut
+        x = self.dwconv(x)
+        x = self.pwconv(x)
+        x = self.bn(x)
+        return self.act(x)
+    
+class LKStar(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=13):
+        super(LKStar, self).__init__()
+        mid_channels = out_channels // 2  # Split menjadi dua jalur
 
-        x = self.act1(self.bn1(self.split_conv(x)))  # Split fitur awal
-        
-        x_large = self.act2(self.bn2(self.large_kernel_conv(x)))  # Jalur 1 - Large Kernel
-        x_small = self.act3(self.bn3(self.small_kernel_conv(x)))  # Jalur 2 - Small Kernel
+        # Jalur 1: Large-Kernel Convolution
+        self.lkconv = LKConv(mid_channels, mid_channels, kernel_size=kernel_size)
 
-        # **LOGGING: Cek ukuran sebelum operasi**
-        print(f"x_large: {x_large.shape}, x_small: {x_small.shape}")
+        # Jalur 2: Element-wise multiplication (Star Operation)
+        self.conv1x1 = nn.Conv2d(mid_channels, mid_channels, 1, bias=False)
+        self.bn = nn.BatchNorm2d(mid_channels)
 
-        # **Fix Ukuran Sebelum Elemen-wise Multiplication**
-        if x_large.shape != x_small.shape:
-            x_small = F.interpolate(x_small, size=x_large.shape[2:], mode="bilinear", align_corners=False)
+        # Penggabungan output dari kedua jalur
+        self.conv_out = nn.Conv2d(out_channels, out_channels, 1, bias=False)
+        self.act = nn.ReLU(inplace=True)
 
-        # Star Operation (Element-wise Multiplication)
-        x_star = self.star_mult(x_large) * x_small  # Elemen-wise multiplication
-        
-        # **LOGGING: Cek ukuran sebelum concat**
-        print(f"x_large: {x_large.shape}, x_star: {x_star.shape}")
+    def forward(self, x):
+        x1, x2 = torch.chunk(x, 2, dim=1)  # Membagi input menjadi dua jalur
+        x1 = self.lkconv(x1)  # Jalur 1: Large-Kernel Convolution
+        x2 = self.bn(self.conv1x1(x2)) * x2  # Jalur 2: Star Operation
+        x = torch.cat((x1, x2), dim=1)  # Menggabungkan hasil dari kedua jalur
+        x = self.conv_out(x)  # Konvolusi 1x1 untuk menyatukan channel
+        return self.act(x)
 
-        # **Fix Padding Sebelum Concat**
-        if x_large.shape != x_star.shape:
-            diffY = x_large.shape[2] - x_star.shape[2]
-            diffX = x_large.shape[3] - x_star.shape[3]
-            x_star = F.pad(x_star, [0, diffX, 0, diffY])
-
-        # **Gabungkan fitur dan lakukan konvolusi akhir**
-        out = torch.cat([x_large, x_star], dim=1)
-        out = self.act_final(self.bn_final(self.conv_final(out)))
-
-        # **Fix Ukuran Sebelum Residual Connection**
-        if self.shortcut:
-            if identity.shape != out.shape:
-                print(f"Fixing shortcut size: identity={identity.shape}, out={out.shape}")
-                identity = F.interpolate(identity, size=out.shape[2:], mode="bilinear", align_corners=False)
-            out += identity  # Residual connection
-
-        return out
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
