@@ -52,6 +52,4 @@ head:
   - [-1, 3, C2f, [128]]  # Menyesuaikan output setelah concat
 
   # Detection Layers
-  - [[15, 18, 21, 24], 1, Detect, [nc]]  # Deteksi pada P2, P3, P4, P5
-
-  # - [[17, 15, 18, 21], 1, Detect, [nc]]  # Deteksi semua skala
+  - [[17, 15, 18, 21], 1, Detect, [nc]]  # Deteksi semua skala
