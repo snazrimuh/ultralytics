@@ -227,7 +227,7 @@ class LKConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13, stride=1):
         super(LKConv, self).__init__()
 
-        # Menghitung padding secara otomatis agar ukuran output tetap sama
+        # Gunakan same padding agar ukuran tetap sama
         padding = (kernel_size - 1) // 2
 
         self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, groups=in_channels, bias=False)
@@ -246,7 +246,7 @@ class LKStar(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13):
         super(LKStar, self).__init__()
 
-        # Pastikan out_channels selalu genap
+        # Pastikan jumlah channel selalu genap
         if out_channels % 2 != 0:
             out_channels += 1  
 
@@ -255,7 +255,7 @@ class LKStar(nn.Module):
         # Jalur 1: Large-Kernel Convolution
         self.lkconv = LKConv(mid_channels, mid_channels, kernel_size=kernel_size)
 
-        # Jalur 2: Element-wise multiplication (Star Operation)
+        # Jalur 2: Star Operation (Element-wise multiplication)
         self.conv1x1 = nn.Conv2d(mid_channels, mid_channels, 1, bias=False)
         self.bn = nn.BatchNorm2d(mid_channels)
 
@@ -272,15 +272,14 @@ class LKStar(nn.Module):
         x1 = self.lkconv(x1)  # Jalur 1: Large-Kernel Convolution
         x2 = self.bn(self.conv1x1(x2)) * x2  # Jalur 2: Star Operation
 
-        # Memastikan kedua output memiliki ukuran yang sama sebelum digabung
-        min_h = min(x1.shape[2], x2.shape[2])
-        min_w = min(x1.shape[3], x2.shape[3])
-        x1 = x1[:, :, :min_h, :min_w]
-        x2 = x2[:, :, :min_h, :min_w]
+        # **Pastikan ukuran height & width selalu sama sebelum cat**
+        if x1.shape[2:] != x2.shape[2:]:
+            x2 = F.interpolate(x2, size=x1.shape[2:], mode="bilinear", align_corners=False)
 
         x = torch.cat((x1, x2), dim=1)  # Menggabungkan hasil dari kedua jalur
         x = self.conv_out(x)  # Konvolusi 1x1 untuk menyatukan channel
         return self.act(x)
+
 
 
 
