@@ -42,7 +42,6 @@ head:
 
   # Small Object Detection Head (P2 Layer)
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
-  - [-1, 1, SPDConv, [128, 1, 1]]  # Menyamakan channel sebelum concat
   - [[-1, 1], 1, Concat, [1]]  # Concat dengan P2
   - [-1, 3, C2f, [128]]  # Menyesuaikan output setelah concat
 
