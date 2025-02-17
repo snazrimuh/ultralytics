@@ -224,27 +224,29 @@ class C2f_DCNv2(nn.Module):
         return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
 
 class LKConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=13, stride=1, padding=None):
+    def __init__(self, in_channels, out_channels, kernel_size=13, stride=1):
         super(LKConv, self).__init__()
-        if padding is None:
-            padding = kernel_size // 2  # Auto-padding agar output tetap memiliki ukuran yang sama
-        
+
+        # Menghitung padding secara otomatis agar ukuran output tetap sama
+        padding = (kernel_size - 1) // 2
+
         self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, groups=in_channels, bias=False)
         self.pwconv = nn.Conv2d(in_channels, out_channels, 1, bias=False)  # 1x1 Pointwise convolution
         self.bn = nn.BatchNorm2d(out_channels)
-        self.act = nn.ReLU(inplace=True)  # Menggunakan ReLU untuk efisiensi komputasi
+        self.act = nn.ReLU(inplace=True)
 
     def forward(self, x):
         x = self.dwconv(x)
         x = self.pwconv(x)
         x = self.bn(x)
         return self.act(x)
+
     
 class LKStar(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13):
         super(LKStar, self).__init__()
 
-        # Pastikan jumlah channel output genap
+        # Pastikan out_channels selalu genap
         if out_channels % 2 != 0:
             out_channels += 1  
 
@@ -253,7 +255,7 @@ class LKStar(nn.Module):
         # Jalur 1: Large-Kernel Convolution
         self.lkconv = LKConv(mid_channels, mid_channels, kernel_size=kernel_size)
 
-        # Jalur 2: Star Operation (Element-wise multiplication)
+        # Jalur 2: Element-wise multiplication (Star Operation)
         self.conv1x1 = nn.Conv2d(mid_channels, mid_channels, 1, bias=False)
         self.bn = nn.BatchNorm2d(mid_channels)
 
@@ -262,16 +264,24 @@ class LKStar(nn.Module):
         self.act = nn.ReLU(inplace=True)
 
     def forward(self, x):
-        # Pastikan jumlah channel input genap dengan padding jika perlu
+        # Pastikan jumlah channel input genap
         if x.shape[1] % 2 != 0:
-            x = F.pad(x, (0, 0, 0, 0, 0, 1))  # Padding di dimensi channel
+            x = F.pad(x, (0, 0, 0, 0, 0, 1))  # Padding di dimensi channel jika perlu
 
         x1, x2 = torch.chunk(x, 2, dim=1)  # Membagi input menjadi dua jalur
         x1 = self.lkconv(x1)  # Jalur 1: Large-Kernel Convolution
         x2 = self.bn(self.conv1x1(x2)) * x2  # Jalur 2: Star Operation
+
+        # Memastikan kedua output memiliki ukuran yang sama sebelum digabung
+        min_h = min(x1.shape[2], x2.shape[2])
+        min_w = min(x1.shape[3], x2.shape[3])
+        x1 = x1[:, :, :min_h, :min_w]
+        x2 = x2[:, :, :min_h, :min_w]
+
         x = torch.cat((x1, x2), dim=1)  # Menggabungkan hasil dari kedua jalur
         x = self.conv_out(x)  # Konvolusi 1x1 untuk menyatukan channel
         return self.act(x)
+
 
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
