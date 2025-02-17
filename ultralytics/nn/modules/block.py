@@ -264,22 +264,21 @@ class LKStar(nn.Module):
         self.act = nn.ReLU(inplace=True)
 
     def forward(self, x):
-        # Pastikan jumlah channel input genap
+        # Pastikan jumlah channel input genap sebelum chunking
         if x.shape[1] % 2 != 0:
-            x = F.pad(x, (0, 0, 0, 0, 0, 1))  # Padding di dimensi channel jika perlu
+            x = F.pad(x, (0, 0, 0, 0, 1, 0))  # Padding di channel pertama agar chunking valid
 
         x1, x2 = torch.chunk(x, 2, dim=1)  # Membagi input menjadi dua jalur
         x1 = self.lkconv(x1)  # Jalur 1: Large-Kernel Convolution
         x2 = self.bn(self.conv1x1(x2)) * x2  # Jalur 2: Star Operation
 
-        # **Pastikan ukuran height & width selalu sama sebelum cat**
+        # **Perbaikan Interpolasi agar ukuran sama**
         if x1.shape[2:] != x2.shape[2:]:
-            x2 = F.interpolate(x2, size=x1.shape[2:], mode="bilinear", align_corners=False)
+            x2 = F.interpolate(x2, size=x1.shape[2:], mode="bilinear", align_corners=True)
 
         x = torch.cat((x1, x2), dim=1)  # Menggabungkan hasil dari kedua jalur
         x = self.conv_out(x)  # Konvolusi 1x1 untuk menyatukan channel
         return self.act(x)
-
 
 
 
