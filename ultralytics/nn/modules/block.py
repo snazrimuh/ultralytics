@@ -65,24 +65,15 @@ __all__ = (
 
 from timm.models.swin_transformer import SwinTransformer
 
-from timm.models.swin_transformer import SwinTransformer
-
 class SwinTransformerYOLOv8(nn.Module):
-    def __init__(self, *args):
+    def __init__(self, output_channels=256, num_blocks=4, patch_merge=2, window_size=7):
         """
-        Menerima argumen dalam bentuk list dari YAML:
-        args[0] -> output_channels
-        args[1] -> num_blocks
-        args[2] -> patch_merge
-        args[3] -> window_size
+        output_channels : int -> Jumlah fitur output dari Swin Transformer.
+        num_blocks : int -> Jumlah blok Swin Transformer.
+        patch_merge : int -> Skala downsampling menggunakan patch merging.
+        window_size : int -> Ukuran window untuk self-attention.
         """
         super(SwinTransformerYOLOv8, self).__init__()
-
-        # Pastikan jumlah argumen sesuai
-        if len(args) < 4:
-            raise ValueError("SwinTransformerYOLOv8 membutuhkan 4 argumen: output_channels, num_blocks, patch_merge, window_size")
-
-        output_channels, num_blocks, patch_merge, window_size = args  # Ekstrak argumen
 
         # Load Swin Transformer sebagai backbone YOLOv8
         self.swin_transformer = SwinTransformer(
