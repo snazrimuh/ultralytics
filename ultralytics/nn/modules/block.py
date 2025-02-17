@@ -264,21 +264,38 @@ class LKStar(nn.Module):
         self.act = nn.ReLU(inplace=True)
 
     def forward(self, x):
+        print(f"Input size: {x.shape}")  # Debug ukuran awal
+
         # Pastikan jumlah channel input genap sebelum chunking
         if x.shape[1] % 2 != 0:
             x = F.pad(x, (0, 0, 0, 0, 1, 0))  # Padding di channel pertama agar chunking valid
+            print(f"After padding: {x.shape}")
 
-        x1, x2 = torch.chunk(x, 2, dim=1)  # Membagi input menjadi dua jalur
-        x1 = self.lkconv(x1)  # Jalur 1: Large-Kernel Convolution
-        x2 = self.bn(self.conv1x1(x2)) * x2  # Jalur 2: Star Operation
+        # Membagi input menjadi dua jalur
+        x1, x2 = torch.chunk(x, 2, dim=1)  
+        print(f"x1 size: {x1.shape}, x2 size: {x2.shape}")  
+
+        # Jalur 1: Large-Kernel Convolution
+        x1 = self.lkconv(x1)
+        print(f"After LKConv x1: {x1.shape}")
+
+        # Jalur 2: Star Operation
+        x2 = self.bn(self.conv1x1(x2)) * x2  
+        print(f"After Star Operation x2: {x2.shape}")
 
         # **Perbaikan Interpolasi agar ukuran sama**
         if x1.shape[2:] != x2.shape[2:]:
             x2 = F.interpolate(x2, size=x1.shape[2:], mode="bilinear", align_corners=True)
+            print(f"After interpolation x2: {x2.shape}")
 
-        x = torch.cat((x1, x2), dim=1)  # Menggabungkan hasil dari kedua jalur
-        x = self.conv_out(x)  # Konvolusi 1x1 untuk menyatukan channel
+        # Gabungkan kembali
+        x = torch.cat((x1, x2), dim=1)  
+        print(f"After concatenation: {x.shape}")
+
+        # Konvolusi 1x1 dan aktivasi
+        x = self.conv_out(x)
         return self.act(x)
+
 
 
 
