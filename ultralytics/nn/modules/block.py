@@ -11,6 +11,7 @@ from .conv import Conv, DWConv, GhostConv, LightConv, RepConv, autopad
 from .transformer import TransformerBlock
 
 __all__ = (
+    "SwinTransformerYOLOv8",
     "DCNv2Bottleneck",
     "C2f_DCNv2",
     "RFAConv",
@@ -61,6 +62,42 @@ __all__ = (
     "SCDown",
     "TorchVision",
 )
+
+from timm.models.swin_transformer import SwinTransformer
+
+class SwinTransformerYOLOv8(nn.Module):
+    def __init__(self, output_channels=256, num_blocks=4, patch_merge=2, window_size=7):
+        """
+        output_channels : int -> Jumlah fitur output dari Swin Transformer.
+        num_blocks : int -> Jumlah blok Swin Transformer.
+        patch_merge : int -> Skala downsampling menggunakan patch merging.
+        window_size : int -> Ukuran window untuk self-attention.
+        """
+        super(SwinTransformerYOLOv8, self).__init__()
+
+        # Load Swin Transformer sebagai backbone YOLOv8
+        self.swin_transformer = SwinTransformer(
+            img_size=640,
+            patch_size=4,
+            in_chans=3,
+            embed_dim=output_channels // 4,  # Sesuaikan agar jumlah channel sesuai
+            depths=[num_blocks] * 4,  # Set jumlah blok Swin Transformer
+            num_heads=[3, 6, 12, 24],  # Head multi-head self-attention
+            window_size=window_size,
+            drop_path_rate=0.2
+        )
+
+        # Patch merging untuk downsampling
+        self.patch_merging = nn.Conv2d(output_channels, output_channels, kernel_size=patch_merge, stride=patch_merge, padding=0)
+
+        # Output layer agar sesuai dengan input YOLOv8 Neck
+        self.conv1x1 = nn.Conv2d(output_channels, output_channels, kernel_size=1)
+
+    def forward(self, x):
+        x = self.swin_transformer.forward_features(x)  # Ekstraksi fitur global
+        x = self.patch_merging(x)  # Downsampling fitur
+        x = self.conv1x1(x)  # Normalisasi output agar cocok dengan YOLOv8
+        return x
 
 class RFAConv(nn.Module):
     """
