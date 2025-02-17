@@ -24,7 +24,7 @@ backbone:
   - [-1, 6, C2f, [256, True]]
   
   # Swin Transformer Integration (NEW)
-  - [-1, 1, SwinTransformerYOLOv8, [256]]  # [output_channels, num_blocks, patch_merge, window_size]
+  - [-1, 1, SwinTransformerYOLOv8, [256, 4, 2, 7]] # [output_channels, num_blocks, patch_merge, window_size]
 
   - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
   - [-1, 6, C2f, [512, True]]
