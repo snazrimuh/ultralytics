@@ -243,12 +243,17 @@ class LKConv(nn.Module):
 class LKStar(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13):
         super(LKStar, self).__init__()
-        mid_channels = out_channels // 2  # Split menjadi dua jalur
+
+        # Pastikan jumlah channel output genap
+        if out_channels % 2 != 0:
+            out_channels += 1  
+
+        mid_channels = out_channels // 2
 
         # Jalur 1: Large-Kernel Convolution
         self.lkconv = LKConv(mid_channels, mid_channels, kernel_size=kernel_size)
 
-        # Jalur 2: Element-wise multiplication (Star Operation)
+        # Jalur 2: Star Operation (Element-wise multiplication)
         self.conv1x1 = nn.Conv2d(mid_channels, mid_channels, 1, bias=False)
         self.bn = nn.BatchNorm2d(mid_channels)
 
@@ -257,6 +262,10 @@ class LKStar(nn.Module):
         self.act = nn.ReLU(inplace=True)
 
     def forward(self, x):
+        # Pastikan jumlah channel input genap dengan padding jika perlu
+        if x.shape[1] % 2 != 0:
+            x = F.pad(x, (0, 0, 0, 0, 0, 1))  # Padding di dimensi channel
+
         x1, x2 = torch.chunk(x, 2, dim=1)  # Membagi input menjadi dua jalur
         x1 = self.lkconv(x1)  # Jalur 1: Large-Kernel Convolution
         x2 = self.bn(self.conv1x1(x2)) * x2  # Jalur 2: Star Operation
