@@ -66,18 +66,27 @@ __all__ = (
 from timm.models.swin_transformer import SwinTransformer
 
 class SwinTransformerYOLOv8(nn.Module):
-    def __init__(self, output_channels=256, num_blocks=4, patch_merge=2, window_size=7):
+    def __init__(self, *args):
         """
-        output_channels : int -> Jumlah fitur output dari Swin Transformer.
-        num_blocks : int -> Jumlah blok Swin Transformer.
-        patch_merge : int -> Skala downsampling menggunakan patch merging.
-        window_size : int -> Ukuran window untuk self-attention.
+        Menerima argumen dalam bentuk list dari YAML:
+        args[0] -> output_channels (default: 256)
+        args[1] -> num_blocks (default: 4)
+        args[2] -> patch_merge (default: 2)
+        args[3] -> window_size (default: 7)
         """
+
         super(SwinTransformerYOLOv8, self).__init__()
+
+        # Tetapkan nilai default jika argumen tidak cukup
+        default_values = [256, 4, 2, 7]  # Default untuk output_channels, num_blocks, patch_merge, window_size
+        args = list(args) + default_values[len(args):]  # Jika args kurang, tambahkan default
+
+        # Unpack argumen dengan aman
+        output_channels, num_blocks, patch_merge, window_size = args[:4]
 
         # Load Swin Transformer sebagai backbone YOLOv8
         self.swin_transformer = SwinTransformer(
-            img_size=640,
+            img_size=640,  # HARUS sesuai dengan ukuran input YOLOv8
             patch_size=4,
             in_chans=3,
             embed_dim=output_channels // 4,  # Sesuaikan agar jumlah channel sesuai
@@ -90,13 +99,19 @@ class SwinTransformerYOLOv8(nn.Module):
         # Patch merging untuk downsampling
         self.patch_merging = nn.Conv2d(output_channels, output_channels, kernel_size=patch_merge, stride=patch_merge, padding=0)
 
-        # Output layer agar sesuai dengan input YOLOv8 Neck
+        # Output layer agar sesuai dengan YOLOv8 Neck
         self.conv1x1 = nn.Conv2d(output_channels, output_channels, kernel_size=1)
+
+        # Layer tambahan untuk memastikan ukuran output 640x640
+        self.resize_layer = nn.AdaptiveAvgPool2d((640, 640))
 
     def forward(self, x):
         x = self.swin_transformer.forward_features(x)  # Ekstraksi fitur global
         x = self.patch_merging(x)  # Downsampling fitur
         x = self.conv1x1(x)  # Normalisasi output agar cocok dengan YOLOv8
+
+        # Resize agar sesuai dengan YOLOv8
+        x = self.resize_layer(x)
         return x
 
 class RFAConv(nn.Module):
