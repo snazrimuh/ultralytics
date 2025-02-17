@@ -48,7 +48,7 @@ head:
   # Small Object Detection Head (P2 Layer)
   - [1, 1, nn.Upsample, [None, 2, "nearest"]]  # Downsample P2 agar sesuai ukuran
   - [-1, 1, Conv, [128, 1, 1]]  # Menyamakan channel sebelum concat
-  - [[-1, 2], 1, Concat, [1]]  # Concat dengan layer sebelumnya
+  - [[-1, 1], 1, Concat, [1]]  # Concat dengan layer sebelumnya
 
   # Detection Layers
   - [[17, 15, 18, 21], 1, Detect, [nc]]  # Deteksi semua skala
