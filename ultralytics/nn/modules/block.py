@@ -224,7 +224,7 @@ class C2f_DCNv2(nn.Module):
         return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
 
 class LKStar(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=13):
+    def __init__(self, in_channels, out_channels, kernel_size=7):
         super().__init__()
         padding = (kernel_size - 1) // 2  # Pastikan output tetap memiliki ukuran yang sama
         self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, padding=padding, groups=in_channels, bias=False)
