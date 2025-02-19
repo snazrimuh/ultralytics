@@ -224,7 +224,7 @@ class C2f_DCNv2(nn.Module):
         return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
 
 
-class LKConv(nn.Module):
+class LKStar(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13):
         super().__init__()
         padding = kernel_size // 2  # Menyesuaikan padding agar output tetap sama
@@ -241,7 +241,7 @@ class LKConv(nn.Module):
 
 
    
-class LKStar(nn.Module):
+class LKConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13):
         super().__init__()
         mid_channels = out_channels // 2  # Memisahkan fitur menjadi dua bagian
