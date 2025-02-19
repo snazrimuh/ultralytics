@@ -395,23 +395,36 @@ class SPDLayer(nn.Module):
         
         return x
 
+
 class SPDConv(nn.Module):
     """
-    SPD-Conv module: Combines SPD layer with a non-stride convolutional layer.
+    SPD-Conv: Spatial-to-Depth Convolution Module
+    - Menggunakan Spatial-to-Depth untuk mempertahankan informasi downsampling.
+    - Menghindari penggunaan stride convolution yang dapat menyebabkan kehilangan informasi penting.
     """
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
         super(SPDConv, self).__init__()
-        self.spd = SPDLayer(scale=2)  # SPD layer with scale=2
+        
+        # Spatial-to-Depth Layer
+        self.spatial_to_depth = nn.PixelUnshuffle(downscale_factor=2)
+
+        # Non-strided Convolution
         self.conv = nn.Conv2d(in_channels * 4, out_channels, kernel_size=kernel_size, padding=padding, stride=1, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
-        self.activation = nn.SiLU()
-    
+        self.act = nn.SiLU()  # Activation function (SiLU digunakan dalam YOLOv8)
+
     def forward(self, x):
-        x = self.spd(x)  # Rearrange spatial to depth
-        x = self.conv(x) # Apply convolution without stride
-        x = self.bn(x)   # Batch normalization
-        x = self.activation(x)  # Activation function (SiLU)
+        """
+        Forward pass SPD-Conv.
+        - x: Tensor input dengan shape [batch_size, in_channels, H, W]
+        - Output: Tensor dengan shape [batch_size, out_channels, H/2, W/2]
+        """
+        x = self.spatial_to_depth(x)  # Downsampling dengan PixelUnshuffle
+        x = self.conv(x)              # Convolution tanpa stride
+        x = self.bn(x)                # Batch Normalization
+        x = self.act(x)               # Activation Function (SiLU)
         return x
+
 
 class DFL(nn.Module):
     """
