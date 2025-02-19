@@ -225,7 +225,7 @@ class C2f_DCNv2(nn.Module):
 
 
 class LKStar(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=17):
+    def __init__(self, in_channels, out_channels, kernel_size=13):
         super().__init__()
         padding = kernel_size // 2  # Menyesuaikan padding agar output tetap sama
         self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, padding=padding, groups=in_channels, bias=False)
@@ -373,28 +373,6 @@ class SPPCSPC(nn.Module):
         x3 = self.act2(self.bn2(self.conv2(x2)))  # Konvolusi untuk fusi fitur
         out = self.act3(self.bn3(self.conv3(x3)))  # Konvolusi akhir
         return out
-
-class SPDLayer(nn.Module):
-    """
-    Spatial-to-Depth (SPD) layer that rearranges spatial information into depth (channel) dimension.
-    """
-    def __init__(self, scale=2):
-        super(SPDLayer, self).__init__()
-        self.scale = scale
-    
-    def forward(self, x):
-        batch_size, channels, height, width = x.size()
-        assert height % self.scale == 0 and width % self.scale == 0, "Height and width must be divisible by scale"
-        
-        new_height, new_width = height // self.scale, width // self.scale
-        new_channels = channels * (self.scale ** 2)
-        
-        x = x.view(batch_size, channels, new_height, self.scale, new_width, self.scale)
-        x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
-        x = x.view(batch_size, new_channels, new_height, new_width)
-        
-        return x
-
 
 class SPDConv(nn.Module):
     """
