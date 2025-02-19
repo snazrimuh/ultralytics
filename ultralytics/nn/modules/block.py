@@ -223,80 +223,40 @@ class C2f_DCNv2(nn.Module):
         x = torch.cat((x1, x2), dim=1)  # Menggabungkan kembali hasilnya
         return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
 
+
 class LKConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=13, stride=1):
-        super(LKConv, self).__init__()
-
-        # Gunakan same padding agar ukuran tetap sama
-        padding = (kernel_size - 1) // 2
-
-        self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, groups=in_channels, bias=False)
-        self.pwconv = nn.Conv2d(in_channels, out_channels, 1, bias=False)  # 1x1 Pointwise convolution
+    def __init__(self, in_channels, out_channels, kernel_size=13):
+        super().__init__()
+        padding = kernel_size // 2  # Agar output size tetap sama
+        self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, padding=padding, groups=in_channels, bias=False)
+        self.pwconv = nn.Conv2d(in_channels, out_channels, 1, bias=False)  # Pointwise Conv 1x1
         self.bn = nn.BatchNorm2d(out_channels)
-        self.act = nn.ReLU(inplace=True)
+        self.silu = nn.SiLU()  # Swish Activation
 
     def forward(self, x):
         x = self.dwconv(x)
         x = self.pwconv(x)
         x = self.bn(x)
-        return self.act(x)
+        return self.silu(x)
 
-    
+   
 class LKStar(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13):
-        super(LKStar, self).__init__()
-
-        # Pastikan jumlah channel selalu genap
-        if out_channels % 2 != 0:
-            out_channels += 1  
-
-        mid_channels = out_channels // 2
-
-        # Jalur 1: Large-Kernel Convolution
-        self.lkconv = LKConv(mid_channels, mid_channels, kernel_size=kernel_size)
-
-        # Jalur 2: Star Operation (Element-wise multiplication)
-        self.conv1x1 = nn.Conv2d(mid_channels, mid_channels, 1, bias=False)
-        self.bn = nn.BatchNorm2d(mid_channels)
-
-        # Penggabungan output dari kedua jalur
-        self.conv_out = nn.Conv2d(out_channels, out_channels, 1, bias=False)
-        self.act = nn.ReLU(inplace=True)
+        super().__init__()
+        mid_channels = out_channels // 2  # Memisahkan fitur menjadi dua bagian
+        self.lkconv1 = LKConv(in_channels, mid_channels, kernel_size)
+        self.lkconv2 = LKConv(mid_channels, mid_channels, kernel_size)
+        self.pwconv = nn.Conv2d(in_channels, out_channels, 1, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.silu = nn.SiLU()
 
     def forward(self, x):
-        print(f"Input size: {x.shape}")  # Debug ukuran awal
-
-        # Pastikan jumlah channel input genap sebelum chunking
-        if x.shape[1] % 2 != 0:
-            x = F.pad(x, (0, 0, 0, 0, 1, 0))  # Padding di channel pertama agar chunking valid
-            print(f"After padding: {x.shape}")
-
-        # Membagi input menjadi dua jalur
-        x1, x2 = torch.chunk(x, 2, dim=1)  
-        print(f"x1 size: {x1.shape}, x2 size: {x2.shape}")  
-
-        # Jalur 1: Large-Kernel Convolution
-        x1 = self.lkconv(x1)
-        print(f"After LKConv x1: {x1.shape}")
-
-        # Jalur 2: Star Operation
-        x2 = self.bn(self.conv1x1(x2)) * x2  
-        print(f"After Star Operation x2: {x2.shape}")
-
-        # **Perbaikan Interpolasi agar ukuran sama**
-        if x1.shape[2:] != x2.shape[2:]:
-            x2 = F.interpolate(x2, size=x1.shape[2:], mode="bilinear", align_corners=True)
-            print(f"After interpolation x2: {x2.shape}")
-
-        # Gabungkan kembali
-        x = torch.cat((x1, x2), dim=1)  
-        print(f"After concatenation: {x.shape}")
-
-        # Konvolusi 1x1 dan aktivasi
-        x = self.conv_out(x)
-        return self.act(x)
-
-
+        x1 = self.lkconv1(x)
+        x2 = self.lkconv2(x1)
+        out = torch.cat((x1, x2), dim=1)  # Menggabungkan dua jalur fitur
+        out = self.pwconv(out)
+        out = self.bn(out)
+        return self.silu(out)
 
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
