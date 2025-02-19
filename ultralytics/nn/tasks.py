@@ -1004,8 +1004,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
     )
     repeat_modules = frozenset(  # modules with 'repeat' arguments
         {
-            LKStar,
-            C2f_EMA,
             BottleneckCSP,
             C1,
             C2,
