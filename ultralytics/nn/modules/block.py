@@ -223,21 +223,34 @@ class C2f_DCNv2(nn.Module):
         x = torch.cat((x1, x2), dim=1)  # Menggabungkan kembali hasilnya
         return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
 
+class LKConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=13):
+        super().__init__()
+        padding = kernel_size // 2
+        self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, padding=padding, groups=in_channels, bias=False)
+        self.pwconv = nn.Conv2d(in_channels, out_channels, 1, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.silu = nn.SiLU()
+
+    def forward(self, x):
+        return self.silu(self.bn(self.pwconv(self.dwconv(x))))
+
 class LKStar(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13):
         super().__init__()
-        padding = kernel_size // 2  # Menyesuaikan padding agar output tetap sama
-        self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, padding=padding, groups=in_channels, bias=False)
-        self.pwconv = nn.Conv2d(in_channels, out_channels, 1, bias=False)  # Pointwise Conv 1x1
+        mid_channels = out_channels // 2
+        self.lkconv1 = LKConv(in_channels, mid_channels, kernel_size)
+        self.lkconv2 = LKConv(mid_channels, mid_channels, kernel_size)
+        self.pwconv = nn.Conv2d(in_channels, out_channels, 1, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
-        self.silu = nn.SiLU()  # Swish activation
+        self.silu = nn.SiLU()
 
     def forward(self, x):
-        x = self.dwconv(x)
-        x = self.pwconv(x)
-        x = self.bn(x)
-        return self.silu(x)
-
+        x1 = self.lkconv1(x)
+        x2 = self.lkconv2(x1)
+        out = torch.cat((x1, x2), dim=1)
+        return self.silu(self.bn(self.pwconv(out)))
+    
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=5):
