@@ -21,7 +21,7 @@ backbone:
   - [-1, 6, LKStar, [512]] # Ganti C2f dengan LKStar
   - [-1, 1, SPDConv, [1024, 3]] # 7-P5/32
   - [-1, 3, LKStar, [1024]] # Ganti C2f dengan LKStar
-  - [-1, 1, SPPF, [1024, 5]] # Ganti SPPF dengan SimSPPF
+  - [-1, 1, SimSPPF, [1024, 5]] # Ganti SPPF dengan SimSPPF
 
 # YOLOv8.0n head
 head:
