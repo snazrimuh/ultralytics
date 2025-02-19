@@ -242,20 +242,43 @@ class LKStar(nn.Module):
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=5):
+
         super(SimSPPF, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.act1 = nn.ReLU(inplace=True)
-        self.pool = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size//2)
-        self.conv2 = nn.Conv2d(out_channels * 4, out_channels, kernel_size=1, bias=False)
+
+        # Konvolusi awal untuk ekstraksi fitur
+        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels // 2)
+        self.act1 = nn.ReLU(inplace=True)  # Menggunakan ReLU dibandingkan SiLU
+
+        # Multi-level Max Pooling (sama seperti SPPF, tetapi lebih efisien)
+        self.pool1 = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size // 2)
+        self.pool2 = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size // 2)
+        self.pool3 = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size // 2)
+
+        # Konvolusi akhir untuk mereduksi dimensi setelah penggabungan fitur
+        self.conv2 = nn.Conv2d(out_channels * 2, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
-        self.act2 = nn.ReLU(inplace=True)
-        
+        self.act2 = nn.ReLU(inplace=True)  # ReLU untuk mempercepat inferensi
+
     def forward(self, x):
-        x = self.act1(self.bn1(self.conv1(x)))
-        pooled = self.pool(x)
-        concat = torch.cat([x, pooled, self.pool(pooled), self.pool(self.pool(pooled))], dim=1)
-        return self.act2(self.bn2(self.conv2(concat)))
+        """
+        Forward pass SimSPPF
+        - x: Tensor input dengan shape [batch_size, in_channels, H, W]
+        - Output: Tensor dengan shape [batch_size, out_channels, H, W]
+        """
+        x = self.act1(self.bn1(self.conv1(x)))  # Konvolusi awal
+
+        # Multi-level Max Pooling (tanpa perubahan ukuran fitur)
+        p1 = self.pool1(x)
+        p2 = self.pool2(p1)
+        p3 = self.pool3(p2)
+
+        # Gabungkan semua fitur (original + pooled features)
+        x = torch.cat([x, p1, p2, p3], dim=1)
+
+        # Konvolusi akhir untuk mereduksi jumlah channel
+        x = self.act2(self.bn2(self.conv2(x)))
+        return x
 
 
 class C2f_EMA(nn.Module):
