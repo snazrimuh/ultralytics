@@ -241,7 +241,7 @@ class LKStar(nn.Module):
     
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=5):
+    def __init__(self, in_channels, out_channels, kernel_size=3):
 
         super(SimSPPF, self).__init__()
 
