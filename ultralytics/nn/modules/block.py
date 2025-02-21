@@ -225,7 +225,7 @@ class C2f_DCNv2(nn.Module):
 
 
 class LKStar(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=9):
+    def __init__(self, in_channels, out_channels, kernel_size=5):
         super().__init__()
         padding = kernel_size // 2  # Menyesuaikan padding agar output tetap sama
         self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, padding=padding, groups=in_channels, bias=False)
