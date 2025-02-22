@@ -228,7 +228,7 @@ class LKConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13, stride=1):
         super(LKConv, self).__init__()
 
-        # Gunakan same padding agar ukuran tetap sama
+        # Same padding agar ukuran tetap sama
         padding = (kernel_size - 1) // 2
 
         self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, groups=in_channels, bias=False)
@@ -242,12 +242,11 @@ class LKConv(nn.Module):
         x = self.bn(x)
         return self.act(x)
 
-    
 class LKStar(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13):
         super(LKStar, self).__init__()
 
-        # Pastikan jumlah channel selalu genap
+        # Pastikan jumlah channel output selalu genap
         if out_channels % 2 != 0:
             out_channels += 1  
 
@@ -269,7 +268,7 @@ class LKStar(nn.Module):
 
         # Pastikan jumlah channel input genap sebelum chunking
         if x.shape[1] % 2 != 0:
-            x = F.pad(x, (0, 0, 0, 0, 1, 0))  # Padding di channel pertama agar chunking valid
+            x = F.pad(x, (0, 0, 0, 0, 1, 0))  # Padding di channel agar chunking valid
             print(f"After padding: {x.shape}")
 
         # Membagi input menjadi dua jalur
@@ -296,7 +295,6 @@ class LKStar(nn.Module):
         # Konvolusi 1x1 dan aktivasi
         x = self.conv_out(x)
         return self.act(x)
-
 
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
 class SimSPPF(nn.Module):
