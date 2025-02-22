@@ -41,6 +41,6 @@ head:
   - [-1, 3, C2f, [1024]] # 24 (P5/32-large)
 
   # Detection Layers
-  - [[18, 15, 21, 24], 1, Detect, [nc]]  # Tambahkan P2/4 untuk deteksi objek kecil
+  - [[15, 12, 18, 21], 1, Detect, [nc]]  # Tambahkan P2/4 untuk deteksi objek kecil
 
 
