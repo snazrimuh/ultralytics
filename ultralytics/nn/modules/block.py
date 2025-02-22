@@ -228,11 +228,11 @@ class LKConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13, stride=1):
         super(LKConv, self).__init__()
 
-        # Same padding agar ukuran tetap sama
         padding = (kernel_size - 1) // 2
 
+        # Sesuaikan jumlah group dengan jumlah channel yang masuk
         self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, groups=in_channels, bias=False)
-        self.pwconv = nn.Conv2d(in_channels, out_channels, 1, bias=False)  # 1x1 Pointwise convolution
+        self.pwconv = nn.Conv2d(in_channels, out_channels, 1, bias=False)  
         self.bn = nn.BatchNorm2d(out_channels)
         self.act = nn.ReLU(inplace=True)
 
@@ -246,44 +246,44 @@ class LKStar(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13):
         super(LKStar, self).__init__()
 
-        # Pastikan jumlah channel output selalu genap
+        # Pastikan out_channels genap
         if out_channels % 2 != 0:
             out_channels += 1  
 
         mid_channels = out_channels // 2
 
-        # Jalur 1: Large-Kernel Convolution
+        # **Perbaikan: Gunakan mid_channels untuk LKConv**
         self.lkconv = LKConv(mid_channels, mid_channels, kernel_size=kernel_size)
 
-        # Jalur 2: Star Operation (Element-wise multiplication)
+        # Jalur 2: Star Operation
         self.conv1x1 = nn.Conv2d(mid_channels, mid_channels, 1, bias=False)
         self.bn = nn.BatchNorm2d(mid_channels)
 
-        # Penggabungan output dari kedua jalur
+        # Output konvolusi 1x1
         self.conv_out = nn.Conv2d(out_channels, out_channels, 1, bias=False)
         self.act = nn.ReLU(inplace=True)
 
     def forward(self, x):
-        print(f"Input size: {x.shape}")  # Debug ukuran awal
+        print(f"Input size: {x.shape}")
 
-        # Pastikan jumlah channel input genap sebelum chunking
+        # Pastikan jumlah channel input genap
         if x.shape[1] % 2 != 0:
-            x = F.pad(x, (0, 0, 0, 0, 1, 0))  # Padding di channel agar chunking valid
+            x = F.pad(x, (0, 0, 0, 0, 1, 0))  
             print(f"After padding: {x.shape}")
 
         # Membagi input menjadi dua jalur
         x1, x2 = torch.chunk(x, 2, dim=1)  
         print(f"x1 size: {x1.shape}, x2 size: {x2.shape}")  
 
-        # Jalur 1: Large-Kernel Convolution
-        x1 = self.lkconv(x1)
+        # **Perbaikan: Pastikan mid_channels sesuai**
+        x1 = self.lkconv(x1)  
         print(f"After LKConv x1: {x1.shape}")
 
         # Jalur 2: Star Operation
         x2 = self.bn(self.conv1x1(x2)) * x2  
         print(f"After Star Operation x2: {x2.shape}")
 
-        # **Perbaikan Interpolasi agar ukuran sama**
+        # **Interpolasi jika ukuran spatial berbeda**
         if x1.shape[2:] != x2.shape[2:]:
             x2 = F.interpolate(x2, size=x1.shape[2:], mode="bilinear", align_corners=True)
             print(f"After interpolation x2: {x2.shape}")
