@@ -225,7 +225,7 @@ class C2f_DCNv2(nn.Module):
 
 
 class LKConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=13):
+    def __init__(self, in_channels, out_channels, kernel_size=7):
         super().__init__()
         padding = kernel_size // 2  # Agar ukuran tetap sama
         self.pwconv1 = nn.Conv2d(in_channels, out_channels, 1, bias=False)  # Pointwise Conv 1x1 untuk menyesuaikan channel
@@ -241,7 +241,7 @@ class LKConv(nn.Module):
         return self.silu(self.bn(x))
 
 class LKStar(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=13):
+    def __init__(self, in_channels, out_channels, kernel_size=7):
         super().__init__()
         mid_channels = out_channels // 2  # Setengah dari output channel untuk setiap cabang
         self.lkconv1 = LKConv(in_channels, mid_channels, kernel_size)
