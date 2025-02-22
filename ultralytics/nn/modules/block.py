@@ -225,43 +225,38 @@ class C2f_DCNv2(nn.Module):
 
 
 class LKConv(nn.Module):
-    def __init__(self, in_channels, kernel_size=13):
-        super().__init__()
-        padding = kernel_size // 2
-
-        # ✅ Depthwise Convolution (Pastikan jumlah groups = in_channels)
-        self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size, padding=padding, groups=in_channels, bias=False)
-
-        # ✅ Pointwise Convolution untuk mengubah jumlah channel
-        self.pwconv = nn.Conv2d(in_channels, in_channels, 1, bias=False)
-
-        self.bn = nn.BatchNorm2d(in_channels)
-        self.silu = nn.SiLU()
-
-    def forward(self, x):
-        return self.silu(self.bn(self.pwconv(self.dwconv(x))))
-
-class LKStar(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=13):
         super().__init__()
-        mid_channels = max(out_channels // 2, 1)  # Pastikan minimal 1 channel
-
-        # ✅ Memastikan jumlah channel sesuai
-        self.lkconv1 = LKConv(in_channels, kernel_size)
-        self.lkconv2 = LKConv(mid_channels, kernel_size)
-
-        # ✅ Menggunakan jumlah channel yang benar setelah concatenation
-        self.pwconv = nn.Conv2d(mid_channels * 2, out_channels, 1, bias=False)  
-
+        padding = kernel_size // 2  # Agar ukuran tetap sama
+        self.pwconv1 = nn.Conv2d(in_channels, out_channels, 1, bias=False)  # Pointwise Conv 1x1 untuk menyesuaikan channel
+        self.dwconv = nn.Conv2d(out_channels, out_channels, kernel_size, padding=padding, groups=out_channels, bias=False)  # Depthwise Convolution
+        self.pwconv2 = nn.Conv2d(out_channels, out_channels, 1, bias=False)  # Pointwise Conv 1x1 untuk menyesuaikan output
         self.bn = nn.BatchNorm2d(out_channels)
         self.silu = nn.SiLU()
 
     def forward(self, x):
-        x1 = self.lkconv1(x)  # Transformasi pertama
-        x2 = self.lkconv2(x1)  # Transformasi kedua
-        out = torch.cat((x1, x2), dim=1)  # Menggabungkan dua jalur fitur
+        x = self.pwconv1(x)  # Sesuaikan jumlah channel
+        x = self.dwconv(x)   # Depthwise convolution
+        x = self.pwconv2(x)  # Sesuaikan output channel
+        return self.silu(self.bn(x))
 
-        out = self.pwconv(out)  # Koreksi jumlah channel setelah concat
+class LKStar(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=13):
+        super().__init__()
+        mid_channels = out_channels // 2  # Setengah dari output channel untuk setiap cabang
+        self.lkconv1 = LKConv(in_channels, mid_channels, kernel_size)
+        self.lkconv2 = LKConv(mid_channels, mid_channels, kernel_size)
+
+        # Menyesuaikan jumlah channel setelah concatenation
+        self.pwconv = nn.Conv2d(mid_channels * 2, out_channels, 1, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.silu = nn.SiLU()
+
+    def forward(self, x):
+        x1 = self.lkconv1(x)
+        x2 = self.lkconv2(x1)
+        out = torch.cat((x1, x2), dim=1)  # Menggabungkan dua jalur fitur
+        out = self.pwconv(out)  # Menyesuaikan jumlah channel
         return self.silu(self.bn(out))
     
 # Simplified Spatial Pyramid Pooling Fast (SimSPPF)
