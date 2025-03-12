@@ -422,33 +422,43 @@ class SPPCSPC(nn.Module):
         out = self.act3(self.bn3(self.conv3(x3)))  # Konvolusi akhir
         return out
 
+class SPDLayer(nn.Module):
+    """
+    Spatial-to-Depth (SPD) layer that rearranges spatial information into depth (channel) dimension.
+    """
+    def __init__(self, scale=2):
+        super(SPDLayer, self).__init__()
+        self.scale = scale
+    
+    def forward(self, x):
+        batch_size, channels, height, width = x.size()
+        assert height % self.scale == 0 and width % self.scale == 0, "Height and width must be divisible by scale"
+        
+        new_height, new_width = height // self.scale, width // self.scale
+        new_channels = channels * (self.scale ** 2)
+        
+        x = x.view(batch_size, channels, new_height, self.scale, new_width, self.scale)
+        x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
+        x = x.view(batch_size, new_channels, new_height, new_width)
+        
+        return x
+
 class SPDConv(nn.Module):
     """
-    SPD-Conv: Spatial-to-Depth Convolution Module
-    - Menggunakan Spatial-to-Depth untuk mempertahankan informasi downsampling.
-    - Menghindari penggunaan stride convolution yang dapat menyebabkan kehilangan informasi penting.
+    SPD-Conv module: Combines SPD layer with a non-stride convolutional layer.
     """
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
         super(SPDConv, self).__init__()
-        
-        # Spatial-to-Depth Layer
-        self.spatial_to_depth = nn.PixelUnshuffle(downscale_factor=2)
-
-        # Non-strided Convolution
+        self.spd = SPDLayer(scale=2)  # SPD layer with scale=2
         self.conv = nn.Conv2d(in_channels * 4, out_channels, kernel_size=kernel_size, padding=padding, stride=1, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
-        self.act = nn.SiLU()  # Activation function (SiLU digunakan dalam YOLOv8)
-
+        self.activation = nn.SiLU()
+    
     def forward(self, x):
-        """
-        Forward pass SPD-Conv.
-        - x: Tensor input dengan shape [batch_size, in_channels, H, W]
-        - Output: Tensor dengan shape [batch_size, out_channels, H/2, W/2]
-        """
-        x = self.spatial_to_depth(x)  # Downsampling dengan PixelUnshuffle
-        x = self.conv(x)              # Convolution tanpa stride
-        x = self.bn(x)                # Batch Normalization
-        x = self.act(x)               # Activation Function (SiLU)
+        x = self.spd(x)  # Rearrange spatial to depth
+        x = self.conv(x) # Apply convolution without stride
+        x = self.bn(x)   # Batch normalization
+        x = self.activation(x)  # Activation function (SiLU)
         return x
 
 
