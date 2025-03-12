@@ -20,7 +20,7 @@ backbone:
   - [-1, 6, C2f, [512, True]]
   - [-1, 1, SPDConv, [1024, 3]] # 7-P5/32
   - [-1, 3, C2f, [1024, True]]
-  - [-1, 1, SimSPPF, [1024, 5]] # 9
+  - [-1, 1, SPPF, [1024, 5]] # 9
 
 # YOLOv8.0n head
 head:
