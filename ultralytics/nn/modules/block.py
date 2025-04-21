@@ -64,6 +64,7 @@ __all__ = (
     "TorchVision",
 )
 
+import math
 class ECAM(nn.Module):
     def __init__(self, channels, gamma=1, b=2):
         super(ECAM, self).__init__()
