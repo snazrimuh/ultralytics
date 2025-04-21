@@ -17,46 +17,47 @@ scales: # model compound scaling constants, i.e. 'model=yolov8n.yaml' will call 
 # YOLOv8.0 backbone
 backbone:
   # [from, repeats, module, args]
-  - [-1, 1, Conv, [64, 3, 2]] # 0-P1/2
-  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4
-  - [-1, 3, C2f, [128, True]]
-  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8
-  - [-1, 6, C2f, [256, True]]
-  - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
-  - [-1, 6, C2f, [512, True]]
-  - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
-  - [-1, 3, C2f, [1024, True]]
-  - [-1, 1, SPPF, [1024, 5]] # 9
+  - [-1, 1, Conv, [64, 3, 2]]        # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]]       # 1-P2/4
+  - [-1, 3, C2f, [128, True]]        # 2
+  - [-1, 1, Conv, [256, 3, 2]]       # 3-P3/8
+  - [-1, 6, C2f, [256, True]]        # 4
+  - [-1, 1, Conv, [512, 3, 2]]       # 5-P4/16
+  - [-1, 6, C2f, [512, True]]        # 6
+  - [-1, 1, Conv, [1024, 3, 2]]      # 7-P5/32
+  - [-1, 3, C2f, [1024, True]]       # 8
+  - [-1, 1, SPPF, [1024, 5]]         # 9
 
-# YOLOv8.0-p2 head
+# YOLOv8.0 head (neck + head)
 head:
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
-  - [[-1, 6], 1, Concat, [1]] # cat backbone P4
-  - [-1, 3, C2f, [512]]        # 12
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]     # 10
+  - [[-1, 6], 1, Concat, [1]]                      # 11 (1024 + 512 = 1536)
+  - [-1, 1, ECAM, [1536]]                          # 12
+  - [-1, 3, C2f, [512]]                            # 13
 
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
-  - [[-1, 4], 1, Concat, [1]] # cat backbone P3
-  - [-1, 3, C2f, [256]]        # 15 (P3/8-small)
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]     # 14
+  - [[-1, 4], 1, Concat, [1]]                      # 15 (512 + 256 = 768)
+  - [-1, 1, ECAM, [768]]                           # 16
+  - [-1, 3, C2f, [256]]                            # 17 (P3/8-small)
 
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
-  - [[-1, 2], 1, Concat, [1]] # cat backbone P2
-  - [-1, 1, ECAM, [128]]       # NEW
-  - [-1, 3, C2f, [128]]        # 18 (P2/4-xsmall)
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]     # 18
+  - [[-1, 2], 1, Concat, [1]]                      # 19 (256 + 128 = 384)
+  - [-1, 1, ECAM, [384]]                           # 20
+  - [-1, 3, C2f, [128]]                            # 21 (P2/4-xsmall)
 
-  - [-1, 1, Conv, [128, 3, 2]]
-  - [[-1, 15], 1, Concat, [1]] # cat head P3
-  - [-1, 1, ECAM, [256]]       # NEW
-  - [-1, 3, C2f, [256]]        # 21 (P3/8-small)
+  - [-1, 1, Conv, [128, 3, 2]]                     # 22
+  - [[-1, 17], 1, Concat, [1]]                     # 23 (128 + 256 = 384)
+  - [-1, 1, ECAM, [384]]                           # 24
+  - [-1, 3, C2f, [256]]                            # 25 (P3/8-small)
 
-  - [-1, 1, Conv, [256, 3, 2]]
-  - [[-1, 12], 1, Concat, [1]] # cat head P4
-  - [-1, 1, ECAM, [512]]       # NEW
-  - [-1, 3, C2f, [512]]        # 24 (P4/16-medium)
+  - [-1, 1, Conv, [256, 3, 2]]                     # 26
+  - [[-1, 13], 1, Concat, [1]]                     # 27 (256 + 512 = 768)
+  - [-1, 1, ECAM, [768]]                           # 28
+  - [-1, 3, C2f, [512]]                            # 29 (P4/16-medium)
 
-  - [-1, 1, Conv, [512, 3, 2]]
-  - [[-1, 10], 1, Concat, [1]] # cat head P5
-  - [-1, 1, ECAM, [1024]]      # NEW
-  - [-1, 3, C2f, [1024]]       # 27 (P5/32-large)
+  - [-1, 1, Conv, [512, 3, 2]]                     # 30
+  - [[-1, 9], 1, Concat, [1]]                      # 31 (512 + 1024 = 1536)
+  - [-1, 1, ECAM, [1536]]                          # 32
+  - [-1, 3, C2f, [1024]]                           # 33 (P5/32-large)
 
-  - [[19, 23, 27, 31], 1, Detect, [nc]] # Detect(P2, P3, P4, P5)
-
+  - [[21, 25, 29, 33], 1, Detect, [nc]]            # 34
