@@ -65,28 +65,21 @@ __all__ = (
 )
 
 class ECAM(nn.Module):
-    def __init__(self, channels, gamma=2, b=1):
+    def __init__(self, channels, gamma=1, b=2):
         super(ECAM, self).__init__()
-        
-        # Adaptive kernel size based on number of channels
-        kernel_size = int(abs((torch.log2(torch.tensor(channels)) + b) / gamma))
-        kernel_size = kernel_size if kernel_size % 2 else kernel_size + 1
-        
-        self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.global_max_pool = nn.AdaptiveMaxPool2d(1)
-        self.conv = nn.Conv1d(1, 1, kernel_size=kernel_size, padding=kernel_size//2, bias=False)
+        t = int(abs((math.log2(channels) + b) / gamma))
+        k = t if t % 2 else t + 1
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.conv = nn.Conv1d(1, 1, kernel_size=k, padding=k // 2, bias=False)
         self.sigmoid = nn.Sigmoid()
-    
+
     def forward(self, x):
-        avg_out = self.global_avg_pool(x).squeeze(-1).squeeze(-1)  # Global Average Pooling
-        max_out = self.global_max_pool(x).squeeze(-1).squeeze(-1)  # Global Max Pooling
-        
-        combined = avg_out + max_out  # Combining both pooling outputs
-        combined = combined.unsqueeze(1)  # Reshape for Conv1D
-        attention = self.conv(combined).squeeze(1)  # 1D Convolution
-        attention = self.sigmoid(attention).unsqueeze(-1).unsqueeze(-1)  # Activation
-        
-        return x * attention  # Apply attention to input feature map
+        avg_out = self.avg_pool(x).squeeze(-1).transpose(-1, -2)  # (B, C) -> (B, 1, C)
+        max_out = self.max_pool(x).squeeze(-1).transpose(-1, -2)
+        out = self.conv(avg_out + max_out)
+        out = self.sigmoid(out).transpose(-1, -2).unsqueeze(-1)
+        return x * out.expand_as(x)
     
 from timm.models.swin_transformer import SwinTransformer
 
