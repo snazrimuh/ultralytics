@@ -455,37 +455,42 @@ class SPPCSPC(nn.Module):
 #         x = self.activation(x)  # Activation function (SiLU)
 #         return x
 
-class SPDConv(nn.Module):
-    """
-    SPD-Conv module as described in SES-YOLOv8n:
-    - Downsampling via spatial-to-depth (SPD) transformation
-    - Followed by a convolution (non-strided)
-    """
-    def __init__(self, in_channels, out_channels, downscale_factor=2, kernel_size=3, padding=1):
-        super(SPDConv, self).__init__()
-        self.downscale_factor = downscale_factor
-        self.out_channels = out_channels
 
-        # Non-strided convolution after SPD
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels * (downscale_factor ** 2), out_channels, kernel_size=kernel_size, stride=1, padding=padding),
-            nn.BatchNorm2d(out_channels),
-            nn.SiLU(inplace=True)
-        )
+class SPDLayer(nn.Module):
+    def __init__(self, downscale_factor=2):
+        super(SPDLayer, self).__init__()
+        self.downscale_factor = downscale_factor
 
     def forward(self, x):
-        # x shape: (B, C, H, W)
-        B, C, H, W = x.size()
+        """
+        Input:  (B, C, H, W)
+        Output: (B, C * r^2, H/r, W/r)
+        """
         r = self.downscale_factor
-        assert H % r == 0 and W % r == 0, "Height and Width must be divisible by the scale factor"
+        B, C, H, W = x.size()
+        assert H % r == 0 and W % r == 0, "Height and Width must be divisible by downscale_factor"
 
-        # Spatial to depth
         x = x.view(B, C, H // r, r, W // r, r)
-        x = x.permute(0, 1, 3, 5, 2, 4).contiguous()  # (B, C, r, r, H//r, W//r)
-        x = x.view(B, C * r * r, H // r, W // r)      # (B, C*r*r, H//r, W//r)
+        x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
+        x = x.view(B, C * r * r, H // r, W // r)
+        return x
 
-        # Apply non-strided conv
-        return self.conv(x)
+class SPDConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, downscale_factor=2):
+        super(SPDConv, self).__init__()
+        self.s2d = SPDLayer(downscale_factor)
+        self.conv = nn.Conv2d(in_channels * downscale_factor**2, out_channels,
+                              kernel_size=kernel_size, stride=1, padding=kernel_size // 2)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.act = nn.SiLU()  # Activation used in YOLOv8
+
+    def forward(self, x):
+        x = self.s2d(x)
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.act(x)
+        return x
+
     
 class DFL(nn.Module):
     """
