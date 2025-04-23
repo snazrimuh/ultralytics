@@ -416,46 +416,82 @@ class SPPCSPC(nn.Module):
         out = self.act3(self.bn3(self.conv3(x3)))  # Konvolusi akhir
         return out
 
+# class SPDLayer(nn.Module):
+#     """
+#     Spatial-to-Depth (SPD) layer that rearranges spatial information into depth (channel) dimension.
+#     """
+#     def __init__(self, scale=2):
+#         super(SPDLayer, self).__init__()
+#         self.scale = scale
+    
+#     def forward(self, x):
+#         batch_size, channels, height, width = x.size()
+#         assert height % self.scale == 0 and width % self.scale == 0, "Height and width must be divisible by scale"
+        
+#         new_height, new_width = height // self.scale, width // self.scale
+#         new_channels = channels * (self.scale ** 2)
+        
+#         x = x.view(batch_size, channels, new_height, self.scale, new_width, self.scale)
+#         x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
+#         x = x.view(batch_size, new_channels, new_height, new_width)
+        
+#         return x
+
+# class SPDConv(nn.Module):
+#     """
+#     SPD-Conv module: Combines SPD layer with a non-stride convolutional layer.
+#     """
+#     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+#         super(SPDConv, self).__init__()
+#         self.spd = SPDLayer(scale=2)  # SPD layer with scale=2
+#         self.conv = nn.Conv2d(in_channels * 4, out_channels, kernel_size=kernel_size, padding=padding, stride=1, bias=False)
+#         self.bn = nn.BatchNorm2d(out_channels)
+#         self.activation = nn.SiLU()
+    
+#     def forward(self, x):
+#         x = self.spd(x)  # Rearrange spatial to depth
+#         x = self.conv(x) # Apply convolution without stride
+#         x = self.bn(x)   # Batch normalization
+#         x = self.activation(x)  # Activation function (SiLU)
+#         return x
+
 class SPDLayer(nn.Module):
     """
-    Spatial-to-Depth (SPD) layer that rearranges spatial information into depth (channel) dimension.
+    Spatial-to-Depth Layer: Downsamples spatial resolution and increases channel depth.
     """
-    def __init__(self, scale=2):
+    def __init__(self, downscale_factor=2):
         super(SPDLayer, self).__init__()
-        self.scale = scale
-    
+        self.downscale_factor = downscale_factor
+
     def forward(self, x):
-        batch_size, channels, height, width = x.size()
-        assert height % self.scale == 0 and width % self.scale == 0, "Height and width must be divisible by scale"
-        
-        new_height, new_width = height // self.scale, width // self.scale
-        new_channels = channels * (self.scale ** 2)
-        
-        x = x.view(batch_size, channels, new_height, self.scale, new_width, self.scale)
-        x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
-        x = x.view(batch_size, new_channels, new_height, new_width)
-        
+        B, C, H, W = x.size()
+        r = self.downscale_factor
+        assert H % r == 0 and W % r == 0, "Height and Width must be divisible by downscale factor"
+
+        x = x.view(B, C, H // r, r, W // r, r)
+        x = x.permute(0, 3, 5, 1, 2, 4).contiguous()  # rearrange
+        x = x.view(B, C * r * r, H // r, W // r)
         return x
+
 
 class SPDConv(nn.Module):
     """
-    SPD-Conv module: Combines SPD layer with a non-stride convolutional layer.
+    SPDConv Module: Combines SPDLayer and a non-stride convolution.
     """
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+    def __init__(self, in_channels, out_channels, downscale_factor=2, kernel_size=3, padding=1):
         super(SPDConv, self).__init__()
-        self.spd = SPDLayer(scale=2)  # SPD layer with scale=2
-        self.conv = nn.Conv2d(in_channels * 4, out_channels, kernel_size=kernel_size, padding=padding, stride=1, bias=False)
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.activation = nn.SiLU()
-    
+        self.spd = SPDLayer(downscale_factor=downscale_factor)
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels * downscale_factor ** 2, out_channels, kernel_size=kernel_size, padding=padding, stride=1),
+            nn.BatchNorm2d(out_channels),
+            nn.SiLU(inplace=True)
+        )
+
     def forward(self, x):
-        x = self.spd(x)  # Rearrange spatial to depth
-        x = self.conv(x) # Apply convolution without stride
-        x = self.bn(x)   # Batch normalization
-        x = self.activation(x)  # Activation function (SiLU)
+        x = self.spd(x)
+        x = self.conv(x)
         return x
-
-
+    
 class DFL(nn.Module):
     """
     Integral module of Distribution Focal Loss (DFL).
