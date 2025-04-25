@@ -492,18 +492,41 @@ class SPPCSPC(nn.Module):
 #         return x
 
 class SPDConv(nn.Module):
-    # Changing the dimension of the Tensor
-    def __init__(self, dimension=1):
+    """
+    SPD-Conv sesuai paper SES-YOLOv8n, menggunakan space_to_depth-style untuk downsampling.
+    """
+    def __init__(self, in_channels, out_channels, kernel_size=3, act=True):
         super().__init__()
-        self.d = dimension
+        self.s2d = SpaceToDepth()
+        self.conv = nn.Conv2d(in_channels * 4, out_channels,
+                              kernel_size=kernel_size, stride=1,
+                              padding=kernel_size // 2, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.act = nn.SiLU() if act is True else act if isinstance(act, nn.Module) else nn.Identity()
 
     def forward(self, x):
-         return torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1)
-#         size_tensor = x.size()
-#         return torch.cat([x[...,0:size_tensor[2]//2,0:size_tensor[3]//2],
-#                          x[...,0:size_tensor[2]//2,size_tensor[3]//2:],
-#                          x[...,size_tensor[2]//2:,0:size_tensor[3]//2],
-#                          x[...,size_tensor[2]//2:,size_tensor[3]//2:]  ],1)
+        x = self.s2d(x)      # space-to-depth downsampling
+        x = self.conv(x)     # conv
+        x = self.bn(x)       # batchnorm
+        x = self.act(x)      # activation
+        return x
+
+class SpaceToDepth(nn.Module):
+    """
+    Efisien spatial-to-depth untuk scale=2.
+    Menggabungkan 4 bagian spatial ke dalam dimensi channel.
+    Input: (B, C, H, W) → Output: (B, 4C, H/2, W/2)
+    """
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return torch.cat([
+            x[..., ::2, ::2],   # even rows, even cols
+            x[..., 1::2, ::2],  # odd rows, even cols
+            x[..., ::2, 1::2],  # even rows, odd cols
+            x[..., 1::2, 1::2]  # odd rows, odd cols
+        ], dim=1)
 
 class DFL(nn.Module):
     """
