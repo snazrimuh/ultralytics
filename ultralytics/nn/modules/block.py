@@ -416,117 +416,45 @@ class SPPCSPC(nn.Module):
         out = self.act3(self.bn3(self.conv3(x3)))  # Konvolusi akhir
         return out
 
-# class SPDLayer(nn.Module):
-#     """
-#     Spatial-to-Depth (SPD) layer that rearranges spatial information into depth (channel) dimension.
-#     """
-#     def __init__(self, scale=2):
-#         super(SPDLayer, self).__init__()
-#         self.scale = scale
+class SPDLayer(nn.Module):
+    """
+    Spatial-to-Depth (SPD) layer that rearranges spatial information into depth (channel) dimension.
+    """
+    def __init__(self, scale=2):
+        super(SPDLayer, self).__init__()
+        self.scale = scale
     
-#     def forward(self, x):
-#         batch_size, channels, height, width = x.size()
-#         assert height % self.scale == 0 and width % self.scale == 0, "Height and width must be divisible by scale"
+    def forward(self, x):
+        batch_size, channels, height, width = x.size()
+        assert height % self.scale == 0 and width % self.scale == 0, "Height and width must be divisible by scale"
         
-#         new_height, new_width = height // self.scale, width // self.scale
-#         new_channels = channels * (self.scale ** 2)
+        new_height, new_width = height // self.scale, width // self.scale
+        new_channels = channels * (self.scale ** 2)
         
-#         x = x.view(batch_size, channels, new_height, self.scale, new_width, self.scale)
-#         x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
-#         x = x.view(batch_size, new_channels, new_height, new_width)
+        x = x.view(batch_size, channels, new_height, self.scale, new_width, self.scale)
+        x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
+        x = x.view(batch_size, new_channels, new_height, new_width)
         
-#         return x
-
-# class SPDConv(nn.Module):
-#     """
-#     SPD-Conv module: Combines SPD layer with a non-stride convolutional layer.
-#     """
-#     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
-#         super(SPDConv, self).__init__()
-#         self.spd = SPDLayer(scale=2)  # SPD layer with scale=2
-#         self.conv = nn.Conv2d(in_channels * 4, out_channels, kernel_size=kernel_size, padding=padding, stride=1, bias=False)
-#         self.bn = nn.BatchNorm2d(out_channels)
-#         self.activation = nn.SiLU()
-    
-#     def forward(self, x):
-#         x = self.spd(x)  # Rearrange spatial to depth
-#         x = self.conv(x) # Apply convolution without stride
-#         x = self.bn(x)   # Batch normalization
-#         x = self.activation(x)  # Activation function (SiLU)
-#         return x
-
-
-# class SPDLayer(nn.Module):
-#     def __init__(self, downscale_factor=2):
-#         super(SPDLayer, self).__init__()
-#         self.downscale_factor = downscale_factor
-
-#     def forward(self, x):
-#         """
-#         Input:  (B, C, H, W)
-#         Output: (B, C * r^2, H/r, W/r)
-#         """
-#         r = self.downscale_factor
-#         B, C, H, W = x.size()
-#         assert H % r == 0 and W % r == 0, "Height and Width must be divisible by downscale_factor"
-
-#         x = x.view(B, C, H // r, r, W // r, r)
-#         x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
-#         x = x.view(B, C * r * r, H // r, W // r)
-#         return x
-
-# class SPDConv(nn.Module):
-#     def __init__(self, in_channels, out_channels, kernel_size=3, downscale_factor=2):
-#         super(SPDConv, self).__init__()
-#         self.s2d = SPDLayer(downscale_factor)
-#         self.conv = nn.Conv2d(in_channels * downscale_factor**2, out_channels,
-#                               kernel_size=kernel_size, stride=1, padding=kernel_size // 2)
-#         self.bn = nn.BatchNorm2d(out_channels)
-#         self.act = nn.SiLU()  # Activation used in YOLOv8
-
-#     def forward(self, x):
-#         x = self.s2d(x)
-#         x = self.conv(x)
-#         x = self.bn(x)
-#         x = self.act(x)
-#         return x
+        return x
 
 class SPDConv(nn.Module):
     """
-    SPD-Conv sesuai paper SES-YOLOv8n, menggunakan space_to_depth-style untuk downsampling.
+    SPD-Conv module: Combines SPD layer with a non-stride convolutional layer.
     """
-    def __init__(self, in_channels, out_channels, kernel_size=3, act=True):
-        super().__init__()
-        self.s2d = SpaceToDepth()
-        self.conv = nn.Conv2d(in_channels * 4, out_channels,
-                              kernel_size=kernel_size, stride=1,
-                              padding=kernel_size // 2, bias=False)
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+        super(SPDConv, self).__init__()
+        self.spd = SPDLayer(scale=2)  # SPD layer with scale=2
+        self.conv = nn.Conv2d(in_channels * 4, out_channels, kernel_size=kernel_size, padding=padding, stride=1, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
-        self.act = nn.SiLU() if act is True else act if isinstance(act, nn.Module) else nn.Identity()
-
+        self.activation = nn.SiLU()
+    
     def forward(self, x):
-        x = self.s2d(x)      # space-to-depth downsampling
-        x = self.conv(x)     # conv
-        x = self.bn(x)       # batchnorm
-        x = self.act(x)      # activation
+        x = self.spd(x)  # Rearrange spatial to depth
+        x = self.conv(x) # Apply convolution without stride
+        x = self.bn(x)   # Batch normalization
+        x = self.activation(x)  # Activation function (SiLU)
         return x
 
-class SpaceToDepth(nn.Module):
-    """
-    Efisien spatial-to-depth untuk scale=2.
-    Menggabungkan 4 bagian spatial ke dalam dimensi channel.
-    Input: (B, C, H, W) → Output: (B, 4C, H/2, W/2)
-    """
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x):
-        return torch.cat([
-            x[..., ::2, ::2],   # even rows, even cols
-            x[..., 1::2, ::2],  # odd rows, even cols
-            x[..., ::2, 1::2],  # even rows, odd cols
-            x[..., 1::2, 1::2]  # odd rows, odd cols
-        ], dim=1)
 
 class DFL(nn.Module):
     """
