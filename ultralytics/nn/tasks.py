@@ -12,6 +12,16 @@ import torch.nn as nn
 
 from ultralytics.nn.autobackend import check_class_names
 from ultralytics.nn.modules import (
+    ECAM,
+    SwinTransformerYOLOv8,
+    RFAConv,
+    C2f_DCNv2,
+    LKStar,
+    SimSPPF,
+    SPPCSPC, 
+    C2f_EMA,
+    EMA, 
+    SPDConv,
     AIFI,
     C1,
     C2,
@@ -388,6 +398,7 @@ class DetectionModel(BaseModel):
                 "Please delete local *.pt file and re-download the latest model checkpoint."
             )
             self.yaml["backbone"][0][2] = "nn.Identity"
+
 
         # Define model
         self.yaml["channels"] = ch  # save channels
@@ -1607,6 +1618,16 @@ def parse_model(d, ch, verbose=True):
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
     base_modules = frozenset(
         {
+            ECAM,
+            SwinTransformerYOLOv8,
+            RFAConv,
+            C2f_DCNv2,
+            LKStar,
+            SimSPPF,
+            SPPCSPC, 
+            C2f_EMA,
+            EMA, 
+            SPDConv,
             Classify,
             Conv,
             ConvTranspose,

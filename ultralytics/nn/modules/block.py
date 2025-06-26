@@ -13,6 +13,18 @@ from .conv import Conv, DWConv, GhostConv, LightConv, RepConv, autopad
 from .transformer import TransformerBlock
 
 __all__ = (
+    "ECAM",
+    "SwinTransformerYOLOv8",
+    "DCNv2Bottleneck",
+    "C2f_DCNv2",
+    "RFAConv",
+    "LKStar",
+    "SimSPPF",
+    "SPPCSPC", 
+    "C2f_EMA",
+    "EMA", 
+    "SPDConv",
+    "SPDLayer",
     "DFL",
     "HGBlock",
     "HGStem",
@@ -53,6 +65,397 @@ __all__ = (
     "SCDown",
     "TorchVision",
 )
+
+import math
+class ECAM(nn.Module):
+    def __init__(self, channels, gamma=1, b=2):
+        super(ECAM, self).__init__()
+        t = int(abs((math.log2(channels) + b) / gamma))
+        k = t if t % 2 else t + 1
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.conv = nn.Conv1d(1, 1, kernel_size=k, padding=k // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = self.avg_pool(x).squeeze(-1).transpose(-1, -2)  # (B, C) -> (B, 1, C)
+        max_out = self.max_pool(x).squeeze(-1).transpose(-1, -2)
+        out = self.conv(avg_out + max_out)
+        out = self.sigmoid(out).transpose(-1, -2).unsqueeze(-1)
+        return x * out.expand_as(x)
+    
+from timm.models.swin_transformer import SwinTransformer
+
+class SwinTransformerYOLOv8(nn.Module):
+    def __init__(self, *args):
+        """
+        Menerima argumen dalam bentuk list dari YAML:
+        args[0] -> output_channels (default: 256)
+        args[1] -> num_blocks (default: 4)
+        args[2] -> patch_merge (default: 2)
+        args[3] -> window_size (default: 7)
+        """
+
+        super(SwinTransformerYOLOv8, self).__init__()
+
+        # Tetapkan nilai default jika argumen tidak cukup
+        default_values = [256, 4, 2, 7]  # Default untuk output_channels, num_blocks, patch_merge, window_size
+        args = list(args) + default_values[len(args):]  # Jika args kurang, tambahkan default
+
+        # Unpack argumen dengan aman
+        output_channels, num_blocks, patch_merge, window_size = args[:4]
+
+        # Load Swin Transformer sebagai backbone YOLOv8
+        self.swin_transformer = SwinTransformer(
+            img_size=640,  # HARUS sesuai dengan ukuran input YOLOv8
+            patch_size=4,
+            in_chans=3,
+            embed_dim=output_channels // 4,  # Sesuaikan agar jumlah channel sesuai
+            depths=[num_blocks] * 4,  # Set jumlah blok Swin Transformer
+            num_heads=[3, 6, 12, 24],  # Head multi-head self-attention
+            window_size=window_size,
+            drop_path_rate=0.2
+        )
+
+        # Patch merging untuk downsampling
+        self.patch_merging = nn.Conv2d(output_channels, output_channels, kernel_size=patch_merge, stride=patch_merge, padding=0)
+
+        # Output layer agar sesuai dengan YOLOv8 Neck
+        self.conv1x1 = nn.Conv2d(output_channels, output_channels, kernel_size=1)
+
+        # Layer tambahan untuk memastikan ukuran output 640x640
+        self.resize_layer = nn.AdaptiveAvgPool2d((640, 640))
+
+    def forward(self, x):
+        x = self.swin_transformer.forward_features(x)  # Ekstraksi fitur global
+        x = self.patch_merging(x)  # Downsampling fitur
+        x = self.conv1x1(x)  # Normalisasi output agar cocok dengan YOLOv8
+
+        # Resize agar sesuai dengan YOLOv8
+        x = self.resize_layer(x)
+        return x
+
+class RFAConv(nn.Module):
+    """
+    Receptive-Field Attention Convolution (RFAConv)
+    - Menggunakan multiple kernel sizes (1x1, 3x3, 5x5)
+    - Menggunakan softmax attention untuk memilih skala fitur yang relevan
+    """
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+        super(RFAConv, self).__init__()
+
+        # Konvolusi dengan tiga ukuran kernel (1x1, 3x3, 5x5)
+        self.conv1x1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv3x3 = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=1, padding=padding, bias=False)
+        self.conv5x5 = nn.Conv2d(in_channels, out_channels, kernel_size=5, stride=1, padding=2, bias=False)
+
+        # Normalisasi Batch
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.bn3 = nn.BatchNorm2d(out_channels)
+        self.bn5 = nn.BatchNorm2d(out_channels)
+
+        # Mekanisme Atensi (Global Average Pooling + Fully Connected)
+        self.attention_fc = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),  # Global Average Pooling
+            nn.Conv2d(out_channels, out_channels // 16, kernel_size=1),  # FC Layer 1
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels // 16, 3, kernel_size=1),  # Output bobot untuk 1x1, 3x3, 5x5
+            nn.Softmax(dim=1)  # Softmax untuk normalisasi bobot
+        )
+
+        self.act = nn.SiLU()  # Aktivasi SiLU
+
+    def forward(self, x):
+
+        # Ekstraksi fitur dengan 3 ukuran kernel
+        out1 = self.act(self.bn1(self.conv1x1(x)))
+        out3 = self.act(self.bn3(self.conv3x3(x)))
+        out5 = self.act(self.bn5(self.conv5x5(x)))
+
+        # Hitung bobot atensi dari fitur yang digabungkan
+        attn = self.attention_fc(out1 + out3 + out5)  # Global pooling dari semua fitur
+
+        # Ekspansi dimensi tensor attn agar sesuai dengan ukuran out1, out3, dan out5
+        attn = attn.expand(-1, -1, out1.size(2), out1.size(3))  # Ekspansi dimensi untuk mencocokkan ukuran
+
+        # Terapkan bobot atensi ke masing-masing fitur
+        out = attn[:, 0:1, :, :] * out1 + attn[:, 1:2, :, :] * out3 + attn[:, 2:3, :, :] * out5
+        return out
+
+
+from torchvision.ops import DeformConv2d  # Menggunakan deformable convolution dari torchvision
+
+class DCNv2Bottleneck(nn.Module):
+    """
+    Bottleneck module menggunakan Deformable Convolution v2 (DCNv2) dari torchvision.
+    Perbaikan dilakukan untuk mengatasi masalah non-deterministik.
+    """
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
+        super(DCNv2Bottleneck, self).__init__()
+        
+        # Konvolusi tambahan untuk menghitung offset
+        self.offset_conv = nn.Conv2d(in_channels, 2 * kernel_size * kernel_size, kernel_size=kernel_size, 
+                                     stride=stride, padding=padding, bias=False)
+        self.offset_bn = nn.BatchNorm2d(2 * kernel_size * kernel_size)  # BatchNorm untuk stabilisasi
+        self.offset_act = nn.Tanh()  # Tanh digunakan agar offset lebih stabil (nilai antara -1 dan 1)
+
+        # Deformable convolution
+        self.dconv = DeformConv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False)
+
+        # BatchNorm dan aktivasi setelah deformable convolution
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.act = nn.SiLU()
+
+    def forward(self, x):
+        # Menghitung offset dengan normalisasi agar lebih stabil
+        offset = self.offset_act(self.offset_bn(self.offset_conv(x)))
+
+        # Menggunakan deformable convolution
+        out = self.dconv(x, offset)
+        return self.act(self.bn(out))
+
+class C2f_DCNv2(nn.Module):
+    """
+    Modul C2f yang telah dimodifikasi untuk menggunakan DCNv2 agar lebih baik dalam menangani variasi bentuk objek.
+    """
+    def __init__(self, in_channels, out_channels, num_bottlenecks=2):
+        super(C2f_DCNv2, self).__init__()
+        mid_channels = out_channels // 2
+        
+        # Convolusi awal untuk menyesuaikan ukuran channel
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.act1 = nn.SiLU()
+        
+        # Bottleneck menggunakan DCNv2 yang telah diperbaiki
+        self.bottlenecks = nn.Sequential(
+            *[DCNv2Bottleneck(mid_channels, mid_channels) for _ in range(num_bottlenecks)]
+        )
+        
+        # Convolusi akhir setelah DCNv2
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.act2 = nn.SiLU()
+
+    def forward(self, x):
+        x = self.act1(self.bn1(self.conv1(x)))  # Konvolusi awal
+        x1, x2 = torch.chunk(x, 2, dim=1)  # Split menjadi dua bagian
+        x2 = self.bottlenecks(x2)  # Proses dengan DCNv2 Bottleneck
+        x = torch.cat((x1, x2), dim=1)  # Menggabungkan kembali hasilnya
+        return self.act2(self.bn2(self.conv2(x)))  # Konvolusi akhir
+
+class LKStar(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=7):
+        super().__init__()
+        padding = kernel_size // 2  # Menyesuaikan ukuran output agar sama
+        self.pwconv1 = nn.Conv2d(in_channels, out_channels, 1, bias=False)  # Pointwise 1x1 Conv
+        self.dwconv = nn.Conv2d(out_channels, out_channels, kernel_size, padding=padding, groups=out_channels, bias=False)  # Depthwise Conv
+        self.pwconv2 = nn.Conv2d(out_channels, out_channels, 1, bias=False)  # Pointwise 1x1 Conv lagi
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.silu = nn.SiLU()
+
+    def forward(self, x):
+        x = self.pwconv1(x)  # Sesuaikan jumlah channel
+        x = self.dwconv(x)   # Depthwise convolution
+        x = self.pwconv2(x)  # Sesuaikan jumlah channel output
+        return self.silu(self.bn(x))
+    
+# Simplified Spatial Pyramid Pooling Fast (SimSPPF)
+class SimSPPF(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=5):
+
+        super(SimSPPF, self).__init__()
+
+        # Konvolusi awal untuk ekstraksi fitur
+        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels // 2)
+        self.act1 = nn.ReLU(inplace=True)  # Menggunakan ReLU dibandingkan SiLU
+
+        # Multi-level Max Pooling (sama seperti SPPF, tetapi lebih efisien)
+        self.pool1 = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size // 2)
+        self.pool2 = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size // 2)
+        self.pool3 = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size // 2)
+
+        # Konvolusi akhir untuk mereduksi dimensi setelah penggabungan fitur
+        self.conv2 = nn.Conv2d(out_channels * 2, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.act2 = nn.ReLU(inplace=True)  # ReLU untuk mempercepat inferensi
+
+    def forward(self, x):
+        """
+        Forward pass SimSPPF
+        - x: Tensor input dengan shape [batch_size, in_channels, H, W]
+        - Output: Tensor dengan shape [batch_size, out_channels, H, W]
+        """
+        x = self.act1(self.bn1(self.conv1(x)))  # Konvolusi awal
+
+        # Multi-level Max Pooling (tanpa perubahan ukuran fitur)
+        p1 = self.pool1(x)
+        p2 = self.pool2(p1)
+        p3 = self.pool3(p2)
+
+        # Gabungkan semua fitur (original + pooled features)
+        x = torch.cat([x, p1, p2, p3], dim=1)
+
+        # Konvolusi akhir untuk mereduksi jumlah channel
+        x = self.act2(self.bn2(self.conv2(x)))
+        return x
+
+
+class C2f_EMA(nn.Module):
+    """Faster Implementation of CSP Bottleneck with 2 convolutions, now with EMA Attention."""
+
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, use_ema=True):
+        """Initializes a CSP bottleneck with 2 convolutions, n Bottleneck blocks, and optional EMA attention."""
+        super().__init__()
+        self.c = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv((2 + n) * self.c, c2, 1)  # optional act=FReLU(c2)
+        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
+        
+        # Tambahkan EMA jika diaktifkan
+        self.use_ema = use_ema
+        if self.use_ema:
+            self.ema = EMA(self.c)
+
+    def forward(self, x):
+        """Forward pass through C2f layer with optional EMA attention."""
+        y = list(self.cv1(x).chunk(2, 1))
+        for m in self.m:
+            y.append(m(y[-1]))
+        
+        # Terapkan EMA pada fitur terakhir sebelum dikombinasikan
+        if self.use_ema:
+            y[-1] = self.ema(y[-1])
+
+        return self.cv2(torch.cat(y, 1))
+
+    def forward_split(self, x):
+        """Forward pass using split() instead of chunk(), with optional EMA."""
+        y = self.cv1(x).split((self.c, self.c), 1)
+        y = [y[0], y[1]]
+        for m in self.m:
+            y.append(m(y[-1]))
+        
+        if self.use_ema:
+            y[-1] = self.ema(y[-1])
+
+        return self.cv2(torch.cat(y, 1))
+    
+# EMA Attention Module
+class EMA(nn.Module):
+    def __init__(self, in_channels, reduction=2):
+        super(EMA, self).__init__()
+        mid_channels = in_channels // reduction  # Mengurangi jumlah channel
+
+        # 1x1 Convolution untuk reduksi dimensi
+        self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(mid_channels)
+        self.act1 = nn.SiLU()
+
+        # Cabang pertama: Depthwise Separable Convolution 3x3
+        self.conv_branch1 = nn.Conv2d(mid_channels, mid_channels, kernel_size=3, stride=1, padding=1, groups=mid_channels, bias=False)
+        self.bn_branch1 = nn.BatchNorm2d(mid_channels)
+        self.act_branch1 = nn.SiLU()
+
+        # Cabang kedua: MaxPooling 3x3 + 1x1 Convolution
+        self.pool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+        self.conv_branch2 = nn.Conv2d(mid_channels, mid_channels, kernel_size=1, bias=False)
+        self.bn_branch2 = nn.BatchNorm2d(mid_channels)
+        self.act_branch2 = nn.SiLU()
+
+        # Konvolusi akhir untuk menggabungkan fitur
+        self.conv_final = nn.Conv2d(mid_channels * 2, in_channels, kernel_size=1, bias=False)
+        self.bn_final = nn.BatchNorm2d(in_channels)
+        self.act_final = nn.SiLU()
+
+    def forward(self, x):
+        x1 = self.act1(self.bn1(self.conv1(x)))  # Reduksi channel awal
+
+        # Cabang 1: Depthwise Separable Convolution
+        branch1 = self.act_branch1(self.bn_branch1(self.conv_branch1(x1)))
+
+        # Cabang 2: MaxPooling + 1x1 Convolution
+        branch2 = self.act_branch2(self.bn_branch2(self.conv_branch2(self.pool(x1))))
+
+        # Menggabungkan dua cabang
+        merged = torch.cat([branch1, branch2], dim=1)
+
+        # Konvolusi akhir
+        out = self.act_final(self.bn_final(self.conv_final(merged)))
+        return out
+
+class SPPCSPC(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_sizes=[5, 9, 13]):
+        super(SPPCSPC, self).__init__()
+        hidden_channels = in_channels // 2  # Mengurangi jumlah channel untuk efisiensi
+
+        # Convolution pertama untuk mengurangi dimensi
+        self.conv1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn1 = nn.BatchNorm2d(hidden_channels)
+        self.act1 = nn.SiLU()
+
+        # Multiple max pooling dengan kernel berbeda
+        self.pooling_layers = nn.ModuleList([
+            nn.MaxPool2d(kernel_size=k, stride=1, padding=k//2) for k in kernel_sizes
+        ])
+
+        # Convolution untuk memproses hasil pooling
+        self.conv2 = nn.Conv2d(hidden_channels * (len(kernel_sizes) + 1), hidden_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn2 = nn.BatchNorm2d(hidden_channels)
+        self.act2 = nn.SiLU()
+
+        # Convolution terakhir untuk mengembalikan ke jumlah channel yang diinginkan
+        self.conv3 = nn.Conv2d(hidden_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(out_channels)
+        self.act3 = nn.SiLU()
+
+    def forward(self, x):
+        x1 = self.act1(self.bn1(self.conv1(x)))  # Reduksi channel awal
+        pooled_features = [x1] + [pool(x1) for pool in self.pooling_layers]  # Pooling multi-skala
+        x2 = torch.cat(pooled_features, dim=1)  # Menggabungkan hasil pooling
+        x3 = self.act2(self.bn2(self.conv2(x2)))  # Konvolusi untuk fusi fitur
+        out = self.act3(self.bn3(self.conv3(x3)))  # Konvolusi akhir
+        return out
+
+class SPDLayer(nn.Module):
+    """
+    Spatial-to-Depth (SPD) layer that rearranges spatial information into depth (channel) dimension.
+    """
+    def __init__(self, scale=2):
+        super(SPDLayer, self).__init__()
+        self.scale = scale
+    
+    def forward(self, x):
+        batch_size, channels, height, width = x.size()
+        assert height % self.scale == 0 and width % self.scale == 0, "Height and width must be divisible by scale"
+        
+        new_height, new_width = height // self.scale, width // self.scale
+        new_channels = channels * (self.scale ** 2)
+        
+        x = x.view(batch_size, channels, new_height, self.scale, new_width, self.scale)
+        x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
+        x = x.view(batch_size, new_channels, new_height, new_width)
+        
+        return x
+
+class SPDConv(nn.Module):
+    """
+    SPD-Conv module: Combines SPD layer with a non-stride convolutional layer.
+    """
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+        super(SPDConv, self).__init__()
+        self.spd = SPDLayer(scale=2)  # SPD layer with scale=2
+        self.conv = nn.Conv2d(in_channels * 4, out_channels, kernel_size=kernel_size, padding=padding, stride=1, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.activation = nn.SiLU()
+    
+    def forward(self, x):
+        x = self.spd(x)  # Rearrange spatial to depth
+        x = self.conv(x) # Apply convolution without stride
+        x = self.bn(x)   # Batch normalization
+        x = self.activation(x)  # Activation function (SiLU)
+        return x
 
 
 class DFL(nn.Module):

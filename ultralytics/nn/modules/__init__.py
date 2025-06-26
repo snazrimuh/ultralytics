@@ -18,6 +18,16 @@ Examples:
 """
 
 from .block import (
+    ECAM,
+    SwinTransformerYOLOv8,
+    RFAConv,
+    C2f_DCNv2,
+    LKStar,
+    SimSPPF,
+    SPPCSPC, 
+    C2f_EMA,
+    EMA, 
+    SPDConv,
     C1,
     C2,
     C2PSA,
@@ -103,6 +113,16 @@ from .transformer import (
 )
 
 __all__ = (
+    "ECAM",
+    "SwinTransformerYOLOv8",
+    "C2f_DCNv2",
+    "LKStar",
+    "SimSPPF",
+    "SPPCSPC", 
+    "C2f_EMA",
+    "EMA", 
+    "SPDConv",
+    "RFAConv",
     "Conv",
     "Conv2",
     "LightConv",
