@@ -6,8 +6,9 @@
 
 # Parameters
 nc: 80  # number of classes
-depth_multiple: 0.33  # scales module repeats
-width_multiple: 0.50  # scales convolution channels
+scales: # model compound scaling constants, i.e. 'model=yolov10n.yaml' will call yolov10.yaml with scale 'n'
+  # [depth, width, max_channels]
+  s: [0.33, 0.50, 1024]
 
 # YOLOv8.0 backbone
 backbone:
